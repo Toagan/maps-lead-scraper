@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maps Lead Scraper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .badge-pending { background: #fef3c7; color: #92400e; }
+        .badge-running { background: #dbeafe; color: #1e40af; }
+        .badge-completed { background: #d1fae5; color: #065f46; }
+        .badge-failed { background: #fee2e2; color: #991b1b; }
+        .badge-cancelled { background: #e5e7eb; color: #374151; }
+        .badge-cancelling { background: #fde68a; color: #92400e; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Nav -->
+    <nav class="bg-white shadow">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex items-center justify-between h-14">
+                <span class="font-bold text-lg text-gray-800">Maps Lead Scraper</span>
+                <div class="flex space-x-1">
+                    <button onclick="showTab('dashboard')" id="tab-dashboard" class="px-4 py-4 text-sm font-medium text-gray-600 hover:text-blue-600 tab-active">Dashboard</button>
+                    <button onclick="showTab('scrape')" id="tab-scrape" class="px-4 py-4 text-sm font-medium text-gray-600 hover:text-blue-600">New Scrape</button>
+                    <button onclick="showTab('jobs')" id="tab-jobs" class="px-4 py-4 text-sm font-medium text-gray-600 hover:text-blue-600">Jobs</button>
+                    <button onclick="showTab('leads')" id="tab-leads" class="px-4 py-4 text-sm font-medium text-gray-600 hover:text-blue-600">Leads</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+
+        <!-- ==================== DASHBOARD ==================== -->
+        <div id="view-dashboard">
+            <h2 class="text-xl font-semibold mb-4">Dashboard</h2>
+            <div id="stats-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white rounded-lg shadow p-5">
+                    <p class="text-sm text-gray-500">Total Leads</p>
+                    <p class="text-2xl font-bold mt-1" id="stat-total">-</p>
+                </div>
+                <div class="bg-white rounded-lg shadow p-5">
+                    <p class="text-sm text-gray-500">With Email</p>
+                    <p class="text-2xl font-bold mt-1" id="stat-email">-</p>
+                </div>
+                <div class="bg-white rounded-lg shadow p-5">
+                    <p class="text-sm text-gray-500">With Phone</p>
+                    <p class="text-2xl font-bold mt-1" id="stat-phone">-</p>
+                </div>
+                <div class="bg-white rounded-lg shadow p-5">
+                    <p class="text-sm text-gray-500">By Country</p>
+                    <div class="mt-1 text-sm" id="stat-country">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== NEW SCRAPE ==================== -->
+        <div id="view-scrape" class="hidden">
+            <h2 class="text-xl font-semibold mb-4">New Scrape</h2>
+            <form id="scrape-form" class="bg-white rounded-lg shadow p-6 max-w-2xl space-y-4">
+                <!-- Search Mode -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Search Mode</label>
+                    <div class="flex space-x-4">
+                        <label class="flex items-center">
+                            <input type="radio" name="search_mode" value="term" checked onchange="toggleSearchMode()" class="mr-2"> Custom Term
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="search_mode" value="category" onchange="toggleSearchMode()" class="mr-2"> Category Bundle
+                        </label>
+                    </div>
+                </div>
+                <!-- Search Term -->
+                <div id="search-term-group">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Search Term</label>
+                    <input type="text" id="search_term" placeholder="e.g. Zahnarzt, Rechtsanwalt" class="w-full border rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <!-- Category -->
+                <div id="category-group" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <select id="category_key" class="w-full border rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"></select>
+                </div>
+                <!-- Country -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                    <select id="country" onchange="loadRegions()" class="w-full border rounded-md px-3 py-2 text-sm">
+                        <option value="de">Germany</option>
+                        <option value="at">Austria</option>
+                        <option value="ch">Switzerland</option>
+                    </select>
+                </div>
+                <!-- Targeting Mode -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Targeting</label>
+                    <select id="targeting_mode" onchange="toggleTargeting()" class="w-full border rounded-md px-3 py-2 text-sm">
+                        <option value="country">Entire Country</option>
+                        <option value="regions">Specific Regions</option>
+                        <option value="radius">Radius from Point</option>
+                    </select>
+                </div>
+                <!-- Regions -->
+                <div id="regions-group" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Regions</label>
+                    <div id="regions-list" class="grid grid-cols-2 gap-1 max-h-48 overflow-y-auto border rounded-md p-2 text-sm"></div>
+                </div>
+                <!-- Radius -->
+                <div id="radius-group" class="hidden space-y-2">
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="block text-xs text-gray-500">Latitude</label>
+                            <input type="number" step="any" id="center_lat" placeholder="49.45" class="w-full border rounded-md px-2 py-1.5 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500">Longitude</label>
+                            <input type="number" step="any" id="center_lng" placeholder="11.08" class="w-full border rounded-md px-2 py-1.5 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500">Radius (km)</label>
+                            <input type="number" id="radius_km" placeholder="50" class="w-full border rounded-md px-2 py-1.5 text-sm">
+                        </div>
+                    </div>
+                </div>
+                <!-- Scrape Mode -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Scrape Mode</label>
+                    <select id="scrape_mode" class="w-full border rounded-md px-3 py-2 text-sm">
+                        <option value="quick">Quick (cities 50k+)</option>
+                        <option value="smart" selected>Smart (cities 10k+)</option>
+                        <option value="thorough">Thorough (cities 5k+)</option>
+                        <option value="max">Max (all locations)</option>
+                    </select>
+                </div>
+                <!-- Email enrichment -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="enrich_emails" class="mr-2">
+                    <label for="enrich_emails" class="text-sm text-gray-700">Enrich emails (crawls websites — slower)</label>
+                </div>
+                <!-- Submit -->
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-md font-medium hover:bg-blue-700 transition">Start Scraping</button>
+                <div id="scrape-result" class="hidden mt-3 p-3 rounded-md text-sm"></div>
+            </form>
+        </div>
+
+        <!-- ==================== JOBS ==================== -->
+        <div id="view-jobs" class="hidden">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold">Jobs</h2>
+                <button onclick="loadJobs()" class="text-sm text-blue-600 hover:underline">Refresh</button>
+            </div>
+            <div class="bg-white rounded-lg shadow overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Search Term</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Country</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Status</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Progress</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Leads</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Dupes</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">API Calls</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500">Created</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobs-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+                <div id="jobs-empty" class="hidden p-8 text-center text-gray-400">No jobs yet</div>
+            </div>
+        </div>
+
+        <!-- ==================== LEADS ==================== -->
+        <div id="view-leads" class="hidden">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold">Leads</h2>
+                <button onclick="downloadCSV()" class="bg-green-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-green-700 transition">Download CSV</button>
+            </div>
+            <!-- Filters -->
+            <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-end">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Country</label>
+                    <select id="f-country" class="border rounded-md px-2 py-1.5 text-sm">
+                        <option value="">All</option>
+                        <option value="de">Germany</option>
+                        <option value="at">Austria</option>
+                        <option value="ch">Switzerland</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Region</label>
+                    <input type="text" id="f-region" placeholder="e.g. BY" class="border rounded-md px-2 py-1.5 text-sm w-20">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Search Term</label>
+                    <input type="text" id="f-search" placeholder="Filter..." class="border rounded-md px-2 py-1.5 text-sm w-32">
+                </div>
+                <div class="flex items-center space-x-3">
+                    <label class="flex items-center text-sm"><input type="checkbox" id="f-email" class="mr-1"> Has Email</label>
+                    <label class="flex items-center text-sm"><input type="checkbox" id="f-phone" class="mr-1"> Has Phone</label>
+                </div>
+                <button onclick="currentLeadPage=0;loadLeads()" class="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700">Apply</button>
+            </div>
+            <!-- Table -->
+            <div class="bg-white rounded-lg shadow overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">Name</th>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">Category</th>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">City</th>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">Phone</th>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">Email</th>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">Website</th>
+                            <th class="px-3 py-3 text-left font-medium text-gray-500">Rating</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leads-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+                <div id="leads-empty" class="hidden p-8 text-center text-gray-400">No leads found</div>
+            </div>
+            <!-- Pagination -->
+            <div class="flex items-center justify-between mt-3 text-sm text-gray-500">
+                <span id="leads-info"></span>
+                <div class="space-x-2">
+                    <button onclick="prevLeadPage()" id="leads-prev" class="px-3 py-1 border rounded-md hover:bg-gray-100 disabled:opacity-40" disabled>Prev</button>
+                    <button onclick="nextLeadPage()" id="leads-next" class="px-3 py-1 border rounded-md hover:bg-gray-100 disabled:opacity-40" disabled>Next</button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+<script>
+// ---- State ----
+let currentTab = 'dashboard';
+let jobPollTimer = null;
+let currentLeadPage = 0;
+const LEADS_PER_PAGE = 50;
+let totalLeads = 0;
+let regionsData = [];
+
+// ---- Navigation ----
+function showTab(tab) {
+    document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.add('hidden'));
+    document.querySelectorAll('[id^="tab-"]').forEach(t => t.classList.remove('tab-active'));
+    document.getElementById('view-' + tab).classList.remove('hidden');
+    document.getElementById('tab-' + tab).classList.add('tab-active');
+    currentTab = tab;
+    if (tab === 'dashboard') loadStats();
+    if (tab === 'jobs') { loadJobs(); startJobPoll(); }
+    if (tab === 'leads') { currentLeadPage = 0; loadLeads(); }
+    if (tab === 'scrape') { loadCategories(); loadRegions(); }
+    if (tab !== 'jobs') stopJobPoll();
+}
+
+// ---- Dashboard ----
+async function loadStats() {
+    try {
+        const r = await fetch('/stats');
+        const d = await r.json();
+        document.getElementById('stat-total').textContent = (d.total_leads || 0).toLocaleString();
+        document.getElementById('stat-email').textContent = (d.with_email || 0).toLocaleString();
+        document.getElementById('stat-phone').textContent = (d.with_phone || 0).toLocaleString();
+        const bc = d.by_country || {};
+        document.getElementById('stat-country').innerHTML =
+            Object.entries(bc).map(([k,v]) => `<span class="font-semibold">${k.toUpperCase()}</span>: ${v.toLocaleString()}`).join(' &middot; ') || '-';
+    } catch(e) {
+        console.error('Stats error:', e);
+    }
+}
+
+// ---- Scrape Form ----
+let categoriesLoaded = false;
+async function loadCategories() {
+    if (categoriesLoaded) return;
+    try {
+        const r = await fetch('/categories');
+        const d = await r.json();
+        const sel = document.getElementById('category_key');
+        sel.innerHTML = '';
+        for (const [key, val] of Object.entries(d)) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = `${val.name} (${val.query_count} terms)`;
+            sel.appendChild(opt);
+        }
+        categoriesLoaded = true;
+    } catch(e) {
+        console.error('Categories error:', e);
+    }
+}
+
+async function loadRegions() {
+    try {
+        const r = await fetch('/regions');
+        regionsData = await r.json();
+        renderRegionCheckboxes();
+    } catch(e) {
+        console.error('Regions error:', e);
+    }
+}
+
+function renderRegionCheckboxes() {
+    const country = document.getElementById('country').value;
+    const cdata = regionsData.find(c => c.code === country);
+    const container = document.getElementById('regions-list');
+    if (!cdata || !cdata.regions.length) { container.innerHTML = '<span class="text-gray-400">No regions</span>'; return; }
+    container.innerHTML = cdata.regions.map(r =>
+        `<label class="flex items-center"><input type="checkbox" name="region" value="${r.code}" class="mr-1"> ${r.name}</label>`
+    ).join('');
+}
+
+function toggleSearchMode() {
+    const mode = document.querySelector('input[name="search_mode"]:checked').value;
+    document.getElementById('search-term-group').classList.toggle('hidden', mode !== 'term');
+    document.getElementById('category-group').classList.toggle('hidden', mode !== 'category');
+}
+
+function toggleTargeting() {
+    const mode = document.getElementById('targeting_mode').value;
+    document.getElementById('regions-group').classList.toggle('hidden', mode !== 'regions');
+    document.getElementById('radius-group').classList.toggle('hidden', mode !== 'radius');
+}
+
+document.getElementById('scrape-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    const resultDiv = document.getElementById('scrape-result');
+    resultDiv.classList.add('hidden');
+
+    const mode = document.querySelector('input[name="search_mode"]:checked').value;
+    const body = {
+        country: document.getElementById('country').value,
+        targeting_mode: document.getElementById('targeting_mode').value,
+        scrape_mode: document.getElementById('scrape_mode').value,
+        enrich_emails: document.getElementById('enrich_emails').checked,
+    };
+
+    if (mode === 'term') {
+        body.search_term = document.getElementById('search_term').value.trim();
+        if (!body.search_term) { alert('Enter a search term'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
+    } else {
+        body.category_key = document.getElementById('category_key').value;
+    }
+
+    if (body.targeting_mode === 'regions') {
+        body.regions = [...document.querySelectorAll('input[name="region"]:checked')].map(c => c.value);
+    }
+    if (body.targeting_mode === 'radius') {
+        body.center_lat = parseFloat(document.getElementById('center_lat').value);
+        body.center_lng = parseFloat(document.getElementById('center_lng').value);
+        body.radius_km = parseFloat(document.getElementById('radius_km').value);
+    }
+
+    try {
+        const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (r.ok) {
+            resultDiv.className = 'mt-3 p-3 rounded-md text-sm bg-green-50 text-green-800';
+            resultDiv.textContent = d.message;
+            resultDiv.classList.remove('hidden');
+        } else {
+            resultDiv.className = 'mt-3 p-3 rounded-md text-sm bg-red-50 text-red-800';
+            resultDiv.textContent = d.detail || 'Error starting scrape';
+            resultDiv.classList.remove('hidden');
+        }
+    } catch(e) {
+        resultDiv.className = 'mt-3 p-3 rounded-md text-sm bg-red-50 text-red-800';
+        resultDiv.textContent = 'Network error: ' + e.message;
+        resultDiv.classList.remove('hidden');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Start Scraping';
+});
+
+// ---- Jobs ----
+async function loadJobs() {
+    try {
+        const r = await fetch('/jobs?limit=50');
+        const jobs = await r.json();
+        const tbody = document.getElementById('jobs-body');
+        const empty = document.getElementById('jobs-empty');
+        if (!jobs.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+        empty.classList.add('hidden');
+        tbody.innerHTML = jobs.map(j => {
+            const pct = j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0;
+            const created = j.created_at ? new Date(j.created_at).toLocaleString() : '-';
+            const cancelBtn = (j.status === 'running' || j.status === 'pending')
+                ? `<button onclick="cancelJob('${j.id}')" class="text-red-600 hover:underline text-xs">Cancel</button>`
+                : '';
+            return `<tr>
+                <td class="px-4 py-3">${esc(j.search_term)}</td>
+                <td class="px-4 py-3">${(j.country||'').toUpperCase()}</td>
+                <td class="px-4 py-3"><span class="badge badge-${j.status}">${j.status}</span></td>
+                <td class="px-4 py-3">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-24 bg-gray-200 rounded-full h-2">
+                            <div class="bg-blue-600 h-2 rounded-full" style="width:${pct}%"></div>
+                        </div>
+                        <span class="text-xs text-gray-500">${j.processed_locations}/${j.total_locations}</span>
+                    </div>
+                </td>
+                <td class="px-4 py-3">${j.total_leads || 0}</td>
+                <td class="px-4 py-3">${j.total_duplicates || 0}</td>
+                <td class="px-4 py-3">${j.total_api_calls || 0}</td>
+                <td class="px-4 py-3 text-xs text-gray-400">${created}</td>
+                <td class="px-4 py-3">${cancelBtn}</td>
+            </tr>`;
+        }).join('');
+
+        // Auto-poll if any job is running
+        const hasRunning = jobs.some(j => j.status === 'running' || j.status === 'pending');
+        if (hasRunning && currentTab === 'jobs') startJobPoll();
+        else stopJobPoll();
+    } catch(e) {
+        console.error('Jobs error:', e);
+    }
+}
+
+function startJobPoll() {
+    stopJobPoll();
+    jobPollTimer = setInterval(loadJobs, 3000);
+}
+function stopJobPoll() {
+    if (jobPollTimer) { clearInterval(jobPollTimer); jobPollTimer = null; }
+}
+
+async function cancelJob(id) {
+    try {
+        await fetch(`/jobs/${id}/cancel`, { method: 'POST' });
+        loadJobs();
+    } catch(e) {
+        console.error('Cancel error:', e);
+    }
+}
+
+// ---- Leads ----
+function buildLeadParams() {
+    const p = new URLSearchParams();
+    const country = document.getElementById('f-country').value;
+    const region = document.getElementById('f-region').value.trim();
+    const search = document.getElementById('f-search').value.trim();
+    const hasEmail = document.getElementById('f-email').checked;
+    const hasPhone = document.getElementById('f-phone').checked;
+    if (country) p.set('country', country);
+    if (region) p.set('region', region);
+    if (search) p.set('search_term', search);
+    if (hasEmail) p.set('has_email', 'true');
+    if (hasPhone) p.set('has_phone', 'true');
+    return p;
+}
+
+async function loadLeads() {
+    try {
+        const p = buildLeadParams();
+        p.set('limit', LEADS_PER_PAGE);
+        p.set('offset', currentLeadPage * LEADS_PER_PAGE);
+        const r = await fetch('/leads?' + p.toString());
+        const d = await r.json();
+        totalLeads = d.total || 0;
+        const tbody = document.getElementById('leads-body');
+        const empty = document.getElementById('leads-empty');
+        if (!d.leads || !d.leads.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); updateLeadPagination(); return; }
+        empty.classList.add('hidden');
+        tbody.innerHTML = d.leads.map(l => {
+            const website = l.website ? `<a href="${esc(l.website)}" target="_blank" class="text-blue-600 hover:underline truncate block max-w-[200px]">${esc(shortUrl(l.website))}</a>` : '-';
+            const email = l.email ? `<a href="mailto:${esc(l.email)}" class="text-blue-600 hover:underline">${esc(l.email)}</a>` : '-';
+            const rating = l.rating ? `${l.rating} (${l.review_count || 0})` : '-';
+            return `<tr>
+                <td class="px-3 py-2 font-medium">${esc(l.name)}</td>
+                <td class="px-3 py-2 text-gray-500">${esc(l.category || '-')}</td>
+                <td class="px-3 py-2">${esc(l.city || '-')}</td>
+                <td class="px-3 py-2">${esc(l.phone || '-')}</td>
+                <td class="px-3 py-2">${email}</td>
+                <td class="px-3 py-2">${website}</td>
+                <td class="px-3 py-2">${rating}</td>
+            </tr>`;
+        }).join('');
+        updateLeadPagination();
+    } catch(e) {
+        console.error('Leads error:', e);
+    }
+}
+
+function updateLeadPagination() {
+    const start = currentLeadPage * LEADS_PER_PAGE + 1;
+    const end = Math.min(start + LEADS_PER_PAGE - 1, totalLeads);
+    document.getElementById('leads-info').textContent = totalLeads > 0 ? `${start}-${end} of ${totalLeads.toLocaleString()}` : 'No results';
+    document.getElementById('leads-prev').disabled = currentLeadPage === 0;
+    document.getElementById('leads-next').disabled = end >= totalLeads;
+}
+function prevLeadPage() { if (currentLeadPage > 0) { currentLeadPage--; loadLeads(); } }
+function nextLeadPage() { if ((currentLeadPage + 1) * LEADS_PER_PAGE < totalLeads) { currentLeadPage++; loadLeads(); } }
+
+function downloadCSV() {
+    const p = buildLeadParams();
+    p.set('format', 'csv');
+    p.set('limit', '50000');
+    window.open('/leads?' + p.toString(), '_blank');
+}
+
+// ---- Helpers ----
+function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+function shortUrl(u) {
+    try { return new URL(u).hostname; } catch { return u; }
+}
+
+// ---- Init ----
+loadStats();
+</script>
+</body>
+</html>
