@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from typing import List
 
 from app.geo import get_region, get_country_module
+from app.geo.worldwide import is_worldwide, get_serper_params
 from app.services import database as db
 from app.services.serper import search_maps, extract_place_data
-from app.services.regions import City, get_city_scrape_config
+from app.services.regions import City, get_city_scrape_config, get_worldwide_scrape_config
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,12 @@ async def run_job(
     cancel_event = asyncio.Event()
     _running_jobs[job_id] = cancel_event
 
-    mod = get_country_module(country)
-    gl, hl = mod.SERPER_GL, mod.SERPER_HL
+    _worldwide = is_worldwide(country)
+    if _worldwide:
+        gl, hl = get_serper_params(country)
+    else:
+        mod = get_country_module(country)
+        gl, hl = mod.SERPER_GL, mod.SERPER_HL
 
     # Mark job as running
     db.update_job(
@@ -83,8 +88,12 @@ async def run_job(
                     break
 
                 current_step += 1
-                zoom, max_pages = get_city_scrape_config(city.population)
-                region_code = get_region(city.lat, city.lon, country)
+                if _worldwide:
+                    zoom, max_pages = get_worldwide_scrape_config()
+                    region_code = None
+                else:
+                    zoom, max_pages = get_city_scrape_config(city.population)
+                    region_code = get_region(city.lat, city.lon, country)
                 query = f"{search_term} in {city.name}"
 
                 for page in range(max_pages):

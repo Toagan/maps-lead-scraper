@@ -3,6 +3,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 
 from app.categories import CATEGORY_BUNDLES
+from app.geo.worldwide import is_worldwide
 from app.schemas.scrape import ScrapeRequest, ScrapeResponse
 from app.services import database as db
 from app.services.regions import resolve_cities
@@ -37,6 +38,14 @@ async def start_scrape(req: ScrapeRequest):
         display_name = req.search_term
     else:
         raise HTTPException(status_code=400, detail="Provide search_term or category_key")
+
+    # Worldwide: force country targeting only
+    if is_worldwide(req.country):
+        if req.targeting_mode != "country":
+            raise HTTPException(
+                status_code=400,
+                detail="Worldwide mode only supports 'country' targeting",
+            )
 
     # Resolve cities
     try:

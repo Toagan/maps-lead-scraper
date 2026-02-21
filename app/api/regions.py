@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter
 
 from app.geo import COUNTRIES
+from app.geo.worldwide import list_available_countries
 from app.schemas.region import CountryInfo, RegionInfo
 from app.services.regions import load_cities
 
@@ -30,3 +31,8 @@ async def list_regions():
             city_count=city_count,
         ))
     return result
+
+
+@router.get("/worldwide-countries")
+async def list_worldwide_countries():
+    return list_available_countries()

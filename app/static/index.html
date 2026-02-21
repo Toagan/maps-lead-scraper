@@ -132,8 +132,20 @@
                     <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
                     <select id="category_key" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
                 </div>
-                <!-- Country -->
+                <!-- Region Mode Toggle -->
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Region</label>
+                    <div class="flex space-x-4">
+                        <label class="flex items-center">
+                            <input type="radio" name="region_mode" value="dach" checked onchange="toggleRegionMode()" class="mr-2 text-br-600 focus:ring-br-500"> DACH
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="region_mode" value="worldwide" onchange="toggleRegionMode()" class="mr-2 text-br-600 focus:ring-br-500"> Worldwide
+                        </label>
+                    </div>
+                </div>
+                <!-- Country (DACH) -->
+                <div id="dach-country-group">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
                     <select id="country" onchange="loadRegions()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                         <option value="de">Germany</option>
@@ -141,8 +153,15 @@
                         <option value="ch">Switzerland</option>
                     </select>
                 </div>
-                <!-- Targeting Mode -->
-                <div>
+                <!-- Country (Worldwide) -->
+                <div id="ww-country-group" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                    <select id="ww-country" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <!-- Targeting Mode (DACH only) -->
+                <div id="targeting-group">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Targeting</label>
                     <select id="targeting_mode" onchange="toggleTargeting()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                         <option value="country">Entire Country</option>
@@ -176,10 +195,10 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Scrape Mode</label>
                     <select id="scrape_mode" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
-                        <option value="quick">Quick (cities 50k+)</option>
-                        <option value="smart" selected>Smart (cities 10k+)</option>
-                        <option value="thorough">Thorough (cities 5k+)</option>
-                        <option value="max">Max (all locations)</option>
+                        <option value="quick" data-dach="Quick (cities 50k+)" data-ww="Quick (cities 15k+)">Quick (cities 50k+)</option>
+                        <option value="smart" selected data-dach="Smart (cities 10k+)" data-ww="Smart (cities 5k+)">Smart (cities 10k+)</option>
+                        <option value="thorough" data-dach="Thorough (cities 5k+)" data-ww="Thorough (cities 1k+)">Thorough (cities 5k+)</option>
+                        <option value="max" data-dach="Max (all locations)" data-ww="Max (cities 1k+)">Max (all locations)</option>
                     </select>
                 </div>
                 <!-- Email enrichment -->
@@ -230,12 +249,15 @@
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex flex-wrap gap-3 items-end">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Country</label>
-                    <select id="f-country" class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
-                        <option value="">All</option>
-                        <option value="de">Germany</option>
-                        <option value="at">Austria</option>
-                        <option value="ch">Switzerland</option>
-                    </select>
+                    <div class="flex space-x-1">
+                        <select id="f-country" class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                            <option value="">All</option>
+                            <option value="de">Germany</option>
+                            <option value="at">Austria</option>
+                            <option value="ch">Switzerland</option>
+                        </select>
+                        <input type="text" id="f-country-code" placeholder="or code" class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm w-20 focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none" title="Enter any country code (e.g. us, fr, jp)">
+                    </div>
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Region</label>
@@ -289,6 +311,7 @@ let currentLeadPage = 0;
 const LEADS_PER_PAGE = 50;
 let totalLeads = 0;
 let regionsData = [];
+let wwCountriesLoaded = false;
 
 // ---- Navigation ----
 function showTab(tab) {
@@ -367,6 +390,41 @@ function toggleSearchMode() {
     document.getElementById('category-group').classList.toggle('hidden', mode !== 'category');
 }
 
+function toggleRegionMode() {
+    const mode = document.querySelector('input[name="region_mode"]:checked').value;
+    const isWW = mode === 'worldwide';
+    document.getElementById('dach-country-group').classList.toggle('hidden', isWW);
+    document.getElementById('ww-country-group').classList.toggle('hidden', !isWW);
+    document.getElementById('targeting-group').classList.toggle('hidden', isWW);
+    document.getElementById('regions-group').classList.add('hidden');
+    document.getElementById('radius-group').classList.add('hidden');
+    // Update scrape mode labels
+    const opts = document.getElementById('scrape_mode').options;
+    for (const opt of opts) {
+        opt.textContent = isWW ? opt.dataset.ww : opt.dataset.dach;
+    }
+    if (isWW) loadWorldwideCountries();
+}
+
+async function loadWorldwideCountries() {
+    if (wwCountriesLoaded) return;
+    try {
+        const r = await fetch('/worldwide-countries');
+        const countries = await r.json();
+        const sel = document.getElementById('ww-country');
+        sel.innerHTML = '';
+        for (const c of countries) {
+            const opt = document.createElement('option');
+            opt.value = c.code;
+            opt.textContent = `${c.name} (${c.code.toUpperCase()})`;
+            sel.appendChild(opt);
+        }
+        wwCountriesLoaded = true;
+    } catch(e) {
+        console.error('Worldwide countries error:', e);
+    }
+}
+
 function toggleTargeting() {
     const mode = document.getElementById('targeting_mode').value;
     document.getElementById('regions-group').classList.toggle('hidden', mode !== 'regions');
@@ -382,9 +440,11 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
     resultDiv.classList.add('hidden');
 
     const mode = document.querySelector('input[name="search_mode"]:checked').value;
+    const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
+    const isWW = regionMode === 'worldwide';
     const body = {
-        country: document.getElementById('country').value,
-        targeting_mode: document.getElementById('targeting_mode').value,
+        country: isWW ? document.getElementById('ww-country').value : document.getElementById('country').value,
+        targeting_mode: isWW ? 'country' : document.getElementById('targeting_mode').value,
         scrape_mode: document.getElementById('scrape_mode').value,
         enrich_emails: document.getElementById('enrich_emails').checked,
     };
@@ -491,11 +551,13 @@ async function cancelJob(id) {
 function buildLeadParams() {
     const p = new URLSearchParams();
     const country = document.getElementById('f-country').value;
+    const countryCode = document.getElementById('f-country-code').value.trim().toLowerCase();
     const region = document.getElementById('f-region').value.trim();
     const search = document.getElementById('f-search').value.trim();
     const hasEmail = document.getElementById('f-email').checked;
     const hasPhone = document.getElementById('f-phone').checked;
-    if (country) p.set('country', country);
+    if (countryCode) p.set('country', countryCode);
+    else if (country) p.set('country', country);
     if (region) p.set('region', region);
     if (search) p.set('search_term', search);
     if (hasEmail) p.set('has_email', 'true');

@@ -92,6 +92,11 @@ def resolve_cities(
     targeting_mode: "country" | "regions" | "cities" | "radius"
     scrape_mode: "quick" | "smart" | "thorough" | "max"
     """
+    # Worldwide countries bypass all DACH logic
+    from app.geo.worldwide import is_worldwide, load_worldwide_cities
+    if is_worldwide(country):
+        return load_worldwide_cities(country, scrape_mode)
+
     min_pop = MIN_POP.get(scrape_mode, 10_000)
 
     # Max mode for Germany uses PLZ grid
@@ -141,6 +146,11 @@ def resolve_cities(
     # Sort by population desc (biggest cities first)
     result.sort(key=lambda c: c.population, reverse=True)
     return result
+
+
+def get_worldwide_scrape_config() -> tuple[int, int]:
+    """Fixed config for worldwide cities (no population data)."""
+    return (14, 2)
 
 
 def get_city_scrape_config(population: int) -> tuple[int, int]:
