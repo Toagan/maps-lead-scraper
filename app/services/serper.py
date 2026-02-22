@@ -80,11 +80,13 @@ def extract_place_data(place: dict, search_term: str, city_name: str) -> dict:
     else:
         categories = str(categories_list) if categories_list else ""
 
-    hours = place.get("openingHours", place.get("hours", ""))
-    if isinstance(hours, dict):
-        hours = hours.get("status", str(hours))
-    elif isinstance(hours, list):
-        hours = "; ".join(hours)
+    hours_raw = place.get("openingHours", place.get("hours", None))
+    if isinstance(hours_raw, dict):
+        operating_hours = hours_raw
+    elif isinstance(hours_raw, list):
+        operating_hours = {"schedule": hours_raw}
+    else:
+        operating_hours = None
 
     return {
         "place_id": place.get("cid") or place.get("place_id") or place.get("placeId", ""),
@@ -100,7 +102,7 @@ def extract_place_data(place: dict, search_term: str, city_name: str) -> dict:
         "latitude": place.get("latitude"),
         "longitude": place.get("longitude"),
         "thumbnail_url": place.get("thumbnailUrl", ""),
-        "operating_hours": hours if isinstance(hours, dict) else None,
+        "operating_hours": operating_hours,
         "price_range": place.get("price", place.get("priceRange", "")),
         "description": place.get("description", place.get("snippet", "")),
         "search_term": search_term,

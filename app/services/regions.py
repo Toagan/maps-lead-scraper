@@ -148,11 +148,6 @@ def resolve_cities(
     return result
 
 
-def get_worldwide_scrape_config() -> tuple[int, int]:
-    """Fixed config for worldwide cities (no population data)."""
-    return (16, 6)
-
-
 def get_city_scrape_config(population: int) -> tuple[int, int]:
     """Returns (zoom_level, max_pages) based on city population.
 
