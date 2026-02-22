@@ -150,20 +150,83 @@ def resolve_cities(
 
 def get_worldwide_scrape_config() -> tuple[int, int]:
     """Fixed config for worldwide cities (no population data)."""
-    return (14, 2)
+    return (16, 6)
 
 
 def get_city_scrape_config(population: int) -> tuple[int, int]:
-    """Returns (zoom_level, max_pages) based on city population. Ported from v1."""
+    """Returns (zoom_level, max_pages) based on city population.
+
+    Higher zoom levels (16-17z) surface smaller businesses that Google
+    suppresses at lower zooms.  max_pages is always 6; the early-stop
+    logic in the scraper handles efficiency.
+    """
     if population >= 500_000:
-        return (12, 6)
-    elif population >= 200_000:
-        return (13, 5)
+        return (16, 6)
     elif population >= 100_000:
-        return (14, 4)
-    elif population >= 50_000:
-        return (14, 3)
+        return (16, 6)
     elif population >= 20_000:
-        return (15, 2)
+        return (17, 6)
     else:
-        return (15, 1)
+        return (17, 6)
+
+
+# ---------------------------------------------------------------------------
+# Grid search for large cities
+# ---------------------------------------------------------------------------
+
+def _km_to_deg_lat(km: float) -> float:
+    """Approximate km to degrees latitude."""
+    return km / 111.0
+
+
+def _km_to_deg_lon(km: float, lat: float) -> float:
+    """Approximate km to degrees longitude at a given latitude."""
+    import math
+    return km / (111.0 * math.cos(math.radians(lat)))
+
+
+@dataclass
+class GridPoint:
+    """A single coordinate point in a city grid."""
+    lat: float
+    lon: float
+
+
+def generate_grid_points(city: City, spacing_km: float = 2.0) -> list[GridPoint]:
+    """Generate a grid of search points around a city center.
+
+    For cities over 100k population, creates a grid of coordinate points
+    so we don't miss businesses far from the city center due to Google's
+    proximity bias.  Smaller cities get a single center point.
+
+    Returns a list of GridPoint; for small cities this is just the center.
+    """
+    pop = city.population
+
+    if pop >= 500_000:
+        # Large city: ~6km radius grid → roughly 5×5 = ~25 points
+        radius_km = 6.0
+    elif pop >= 200_000:
+        # Medium-large city: ~4km radius → roughly 4×4 = ~16 points
+        radius_km = 4.0
+    elif pop >= 100_000:
+        # Medium city: ~3km radius → roughly 3×3 = ~9 points
+        radius_km = 3.0
+    else:
+        # Small city: single center point is sufficient
+        return [GridPoint(lat=city.lat, lon=city.lon)]
+
+    dlat = _km_to_deg_lat(spacing_km)
+    dlon = _km_to_deg_lon(spacing_km, city.lat)
+    steps_lat = int(radius_km / spacing_km)
+    steps_lon = int(radius_km / spacing_km)
+
+    points: list[GridPoint] = []
+    for i in range(-steps_lat, steps_lat + 1):
+        for j in range(-steps_lon, steps_lon + 1):
+            plat = city.lat + i * dlat
+            plon = city.lon + j * dlon
+            if haversine_km(city.lat, city.lon, plat, plon) <= radius_km:
+                points.append(GridPoint(lat=plat, lon=plon))
+
+    return points if points else [GridPoint(lat=city.lat, lon=city.lon)]

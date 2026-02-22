@@ -16,6 +16,7 @@ _client: Client | None = None
 
 LEADS_TABLE = "scraper_leads"
 JOBS_TABLE = "scrape_jobs"
+BUNDLES_TABLE = "custom_bundles"
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +166,51 @@ def get_stats() -> dict:
     except Exception as exc:
         logger.error("Error getting stats: %s", exc)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Custom Bundles
+# ---------------------------------------------------------------------------
+
+def save_custom_bundle(key: str, name: str, queries: list[str]) -> bool:
+    if not _client:
+        return False
+    try:
+        _client.table(BUNDLES_TABLE).upsert(
+            {"key": key, "name": name, "queries": queries},
+            on_conflict="key",
+        ).execute()
+        return True
+    except Exception as exc:
+        logger.error("Error saving custom bundle: %s", exc)
+        return False
+
+
+def list_custom_bundles() -> list[dict]:
+    if not _client:
+        return []
+    try:
+        result = (
+            _client.table(BUNDLES_TABLE)
+            .select("key, name, queries")
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return result.data
+    except Exception as exc:
+        logger.error("Error listing custom bundles: %s", exc)
+        return []
+
+
+def delete_custom_bundle(key: str) -> bool:
+    if not _client:
+        return False
+    try:
+        _client.table(BUNDLES_TABLE).delete().eq("key", key).execute()
+        return True
+    except Exception as exc:
+        logger.error("Error deleting custom bundle: %s", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------

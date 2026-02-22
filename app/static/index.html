@@ -130,7 +130,49 @@
                 <!-- Category -->
                 <div id="category-group" class="hidden">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                    <select id="category_key" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
+                    <div class="flex items-center space-x-2">
+                        <select id="category_key" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
+                        <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create Bundle</button>
+                    </div>
+                    <!-- Bundle Builder -->
+                    <div id="bundle-builder" class="hidden mt-3 border border-br-200 rounded-lg p-4 bg-br-50 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-semibold text-br-900">Create Custom Bundle</span>
+                            <button type="button" onclick="toggleBundleBuilder()" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Niche / Industry</label>
+                                <input type="text" id="bb-niche" placeholder="e.g. dentists, real estate agents" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Language</label>
+                                <select id="bb-language" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none bg-white">
+                                    <option value="English">English</option>
+                                    <option value="German">German</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="button" onclick="generateTerms()" id="bb-generate-btn" class="w-full bg-br-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-br-700 transition">Generate Search Terms</button>
+                        <div id="bb-loading" class="hidden text-center py-3 text-sm text-br-600">
+                            <svg class="animate-spin inline w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            Generating terms with AI...
+                        </div>
+                        <div id="bb-terms-section" class="hidden space-y-2">
+                            <label class="block text-xs text-gray-500">Search Terms (click &times; to remove, add new below)</label>
+                            <div id="bb-terms-list" class="space-y-1 max-h-48 overflow-y-auto"></div>
+                            <div class="flex space-x-2">
+                                <input type="text" id="bb-new-term" placeholder="Add a term..." class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none bg-white" onkeydown="if(event.key==='Enter'){event.preventDefault();addBundleTerm();}">
+                                <button type="button" onclick="addBundleTerm()" class="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-300 transition">Add</button>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Bundle Name</label>
+                                <input type="text" id="bb-name" placeholder="e.g. Dentists EN" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none bg-white">
+                            </div>
+                            <button type="button" onclick="saveBundle()" id="bb-save-btn" class="w-full bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">Save Bundle</button>
+                            <div id="bb-error" class="hidden text-sm text-red-600"></div>
+                        </div>
+                    </div>
                 </div>
                 <!-- Region Mode Toggle -->
                 <div>
@@ -345,8 +387,10 @@ async function loadStats() {
 
 // ---- Scrape Form ----
 let categoriesLoaded = false;
-async function loadCategories() {
-    if (categoriesLoaded) return;
+let bundleTerms = [];
+
+async function loadCategories(forceReload) {
+    if (categoriesLoaded && !forceReload) return;
     try {
         const r = await fetch('/categories');
         const d = await r.json();
@@ -356,11 +400,143 @@ async function loadCategories() {
             const opt = document.createElement('option');
             opt.value = key;
             opt.textContent = `${val.name} (${val.query_count} terms)`;
+            if (val.custom) opt.textContent = '\u2605 ' + opt.textContent;
             sel.appendChild(opt);
+            if (val.custom) {
+                const delBtn = document.createElement('span');
+                // We'll handle delete via a separate click on the option area
+            }
+        }
+        // Add delete buttons for custom bundles below the select
+        let delContainer = document.getElementById('custom-bundle-deletes');
+        if (!delContainer) {
+            delContainer = document.createElement('div');
+            delContainer.id = 'custom-bundle-deletes';
+            delContainer.className = 'mt-1 flex flex-wrap gap-1';
+            sel.parentElement.appendChild(delContainer);
+        }
+        delContainer.innerHTML = '';
+        for (const [key, val] of Object.entries(d)) {
+            if (val.custom) {
+                const tag = document.createElement('span');
+                tag.className = 'inline-flex items-center bg-br-50 border border-br-200 text-br-700 text-xs px-2 py-0.5 rounded-full';
+                tag.innerHTML = `${esc(val.name)} <button onclick="deleteBundle('${esc(key)}')" class="ml-1 text-red-400 hover:text-red-600 font-bold">&times;</button>`;
+                delContainer.appendChild(tag);
+            }
         }
         categoriesLoaded = true;
     } catch(e) {
         console.error('Categories error:', e);
+    }
+}
+
+function toggleBundleBuilder() {
+    const el = document.getElementById('bundle-builder');
+    el.classList.toggle('hidden');
+}
+
+async function generateTerms() {
+    const niche = document.getElementById('bb-niche').value.trim();
+    if (!niche) { alert('Enter a niche / industry'); return; }
+    const language = document.getElementById('bb-language').value;
+    const btn = document.getElementById('bb-generate-btn');
+    const loading = document.getElementById('bb-loading');
+    const errEl = document.getElementById('bb-error');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    loading.classList.remove('hidden');
+    try {
+        const r = await fetch('/categories/suggest', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({niche, language}),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Failed to generate terms');
+        bundleTerms = d.terms || [];
+        renderBundleTerms();
+        document.getElementById('bb-terms-section').classList.remove('hidden');
+        // Pre-fill name
+        if (!document.getElementById('bb-name').value) {
+            document.getElementById('bb-name').value = niche.charAt(0).toUpperCase() + niche.slice(1) + ' (' + language + ')';
+        }
+    } catch(e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+    }
+    btn.disabled = false;
+    loading.classList.add('hidden');
+}
+
+function renderBundleTerms() {
+    const container = document.getElementById('bb-terms-list');
+    container.innerHTML = bundleTerms.map((t, i) =>
+        `<div class="flex items-center justify-between bg-white border border-gray-200 rounded px-3 py-1.5 text-sm">
+            <span>${esc(t)}</span>
+            <button type="button" onclick="removeBundleTerm(${i})" class="text-red-400 hover:text-red-600 font-bold ml-2">&times;</button>
+        </div>`
+    ).join('');
+}
+
+function removeBundleTerm(idx) {
+    bundleTerms.splice(idx, 1);
+    renderBundleTerms();
+}
+
+function addBundleTerm() {
+    const input = document.getElementById('bb-new-term');
+    const val = input.value.trim();
+    if (!val) return;
+    bundleTerms.push(val);
+    input.value = '';
+    renderBundleTerms();
+}
+
+async function saveBundle() {
+    const name = document.getElementById('bb-name').value.trim();
+    const errEl = document.getElementById('bb-error');
+    errEl.classList.add('hidden');
+    if (!name) { alert('Enter a bundle name'); return; }
+    if (!bundleTerms.length) { alert('Add at least one search term'); return; }
+    const btn = document.getElementById('bb-save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+        const r = await fetch('/categories/save', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({name, queries: bundleTerms}),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Failed to save');
+        // Reset builder
+        bundleTerms = [];
+        document.getElementById('bb-niche').value = '';
+        document.getElementById('bb-name').value = '';
+        document.getElementById('bb-terms-section').classList.add('hidden');
+        document.getElementById('bundle-builder').classList.add('hidden');
+        // Reload categories
+        categoriesLoaded = false;
+        await loadCategories(true);
+        // Select the new bundle
+        document.getElementById('category_key').value = d.key;
+    } catch(e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Save Bundle';
+}
+
+async function deleteBundle(key) {
+    if (!confirm('Delete this custom bundle?')) return;
+    try {
+        const r = await fetch('/categories/' + key, {method: 'DELETE'});
+        if (!r.ok) { const d = await r.json(); alert(d.detail || 'Failed to delete'); return; }
+        categoriesLoaded = false;
+        await loadCategories(true);
+    } catch(e) {
+        console.error('Delete bundle error:', e);
     }
 }
 
