@@ -146,19 +146,68 @@ CATEGORY_BUNDLES = {
         ],
     },
     "seo_agencies_en": {
-        "name": "SEO/Content/Marketing Agencies EN (Scaile ICP)",
+        "name": "SEO & Digital Marketing Agencies EN (15 terms)",
         "queries": [
+            # Core SEO — these terms catch self-described SEO businesses
             "SEO agency",
-            "SEO agency for businesses",
-            "content marketing agency",
-            "online marketing agency",
-            "digital marketing agency",
-            "performance marketing agency",
-            "inbound marketing agency",
+            "SEO company",
+            "SEO services",
             "SEO consultant",
-            "SEO freelancer",
-            "content agency",
-            "copywriting agency SEO",
+            # GBP category + digital marketing
+            "Internet marketing service",
+            "digital marketing agency",
+            "marketing agency",
+            "marketing consultant",
+            # Adjacent — these catch agencies that also do SEO
+            "web design agency",
+            "PPC agency",
+            "social media agency",
+            "content marketing agency",
+            # Broader — unique businesses not in above
+            "lead generation agency",
+            "PR agency",
+            "creative agency",
+        ],
+    },
+    "seo_agencies_en_max": {
+        "name": "SEO & Digital Marketing Agencies EN MAX (30 terms)",
+        "queries": [
+            # Core SEO
+            "SEO agency",
+            "SEO company",
+            "SEO services",
+            "SEO consultant",
+            "SEO specialist",
+            # GBP categories & marketing
+            "Internet marketing service",
+            "digital marketing agency",
+            "marketing agency",
+            "marketing consultant",
+            "online marketing agency",
+            "performance marketing agency",
+            # Adjacent high-value
+            "web design agency",
+            "web development agency",
+            "PPC agency",
+            "Google Ads agency",
+            "social media agency",
+            "content marketing agency",
+            "email marketing agency",
+            # Broader agency types
+            "lead generation agency",
+            "PR agency",
+            "digital PR agency",
+            "creative agency",
+            "branding agency",
+            "advertising agency",
+            "digital agency",
+            # Niche / specialist
+            "growth marketing agency",
+            "B2B marketing agency",
+            "ecommerce marketing agency",
+            "search marketing agency",
+            "inbound marketing agency",
+            "copywriting agency",
         ],
     },
     "dental": {
