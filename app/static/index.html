@@ -133,6 +133,7 @@
                     <div class="flex items-center space-x-2">
                         <select id="category_key" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
                         <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create Bundle</button>
+                        <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition">ChatGPT Prompt</button>
                     </div>
                     <!-- Bundle Builder -->
                     <div id="bundle-builder" class="hidden mt-3 border border-br-200 rounded-lg p-4 bg-br-50 space-y-3">
@@ -171,6 +172,40 @@
                             </div>
                             <button type="button" onclick="saveBundle()" id="bb-save-btn" class="w-full bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">Save Bundle</button>
                             <div id="bb-error" class="hidden text-sm text-red-600"></div>
+                        </div>
+                    </div>
+                    <!-- ChatGPT Prompt Generator -->
+                    <div id="prompt-generator" class="hidden mt-3 border border-amber-200 rounded-lg p-4 bg-amber-50 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-semibold text-amber-900">Generate ChatGPT Prompt</span>
+                            <button type="button" onclick="togglePromptGenerator()" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+                        </div>
+                        <p class="text-xs text-amber-700">Enter your niche below, copy the generated prompt, paste it into ChatGPT, then paste the JSON output back here to create a bundle.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Niche / Industry</label>
+                                <input type="text" id="pg-niche" placeholder="e.g. dentists, plumbers, accountants" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Language</label>
+                                <select id="pg-language" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white">
+                                    <option value="German">German</option>
+                                    <option value="English">English</option>
+                                    <option value="French">French</option>
+                                    <option value="Italian">Italian</option>
+                                    <option value="Spanish">Spanish</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="button" onclick="generatePrompt()" class="w-full bg-amber-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition">Generate Prompt</button>
+                        <div id="pg-output" class="hidden space-y-2">
+                            <textarea id="pg-prompt-text" readonly rows="8" class="w-full border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono bg-white text-gray-800 resize-none focus:outline-none"></textarea>
+                            <button type="button" onclick="copyPrompt()" id="pg-copy-btn" class="w-full bg-amber-100 text-amber-800 border border-amber-300 py-1.5 rounded-lg text-sm font-medium hover:bg-amber-200 transition">Copy to Clipboard</button>
+                            <div class="border-t border-amber-200 pt-2 mt-2">
+                                <label class="block text-xs text-gray-500 mb-1">Paste ChatGPT output here (JSON array)</label>
+                                <textarea id="pg-paste" rows="4" placeholder='["term 1", "term 2", "term 3", ...]' class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none"></textarea>
+                                <button type="button" onclick="importFromChatGPT()" class="w-full mt-2 bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">Import Terms & Create Bundle</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -433,6 +468,10 @@ async function loadCategories(forceReload) {
 function toggleBundleBuilder() {
     const el = document.getElementById('bundle-builder');
     el.classList.toggle('hidden');
+    // Close prompt generator if open
+    if (!el.classList.contains('hidden')) {
+        document.getElementById('prompt-generator').classList.add('hidden');
+    }
 }
 
 async function generateTerms() {
@@ -526,6 +565,90 @@ async function saveBundle() {
     }
     btn.disabled = false;
     btn.textContent = 'Save Bundle';
+}
+
+// ---- ChatGPT Prompt Generator ----
+function togglePromptGenerator() {
+    const el = document.getElementById('prompt-generator');
+    el.classList.toggle('hidden');
+    // Close bundle builder if open
+    if (!el.classList.contains('hidden')) {
+        document.getElementById('bundle-builder').classList.add('hidden');
+    }
+}
+
+function generatePrompt() {
+    const niche = document.getElementById('pg-niche').value.trim();
+    if (!niche) { alert('Enter a niche / industry'); return; }
+    const language = document.getElementById('pg-language').value;
+
+    const prompt = `You are an expert Google Maps lead generation specialist. I need comprehensive search terms to find ALL businesses in the "${niche}" niche via Google Maps.
+
+TASK: Generate 25-40 Google Maps search terms that will maximize the number of unique business listings found.
+
+RULES:
+1. Language: ALL terms must be in ${language}
+2. Include the main industry term + all common variations (agency, company, firm, consultant, freelancer, services)
+3. Include adjacent/overlapping business types that offer similar services
+4. Include Google Business Profile category names that these businesses typically use
+5. Include specialist/niche subtypes within the industry
+6. Do NOT include location names — just the business type terms
+7. Each term should be 1-4 words maximum
+8. Prioritize terms that return DIFFERENT businesses (not the same ones with different keywords)
+
+IMPORTANT: Return ONLY a JSON array of strings. No explanations, no markdown, no code fences. Just the raw JSON array.
+
+Example format:
+["term 1", "term 2", "term 3"]`;
+
+    document.getElementById('pg-prompt-text').value = prompt;
+    document.getElementById('pg-output').classList.remove('hidden');
+}
+
+function copyPrompt() {
+    const text = document.getElementById('pg-prompt-text').value;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('pg-copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+    });
+}
+
+async function importFromChatGPT() {
+    const raw = document.getElementById('pg-paste').value.trim();
+    if (!raw) { alert('Paste the ChatGPT output first'); return; }
+
+    let terms;
+    try {
+        // Try parsing as JSON directly
+        let cleaned = raw;
+        // Strip markdown code fences if present
+        if (cleaned.startsWith('```')) {
+            cleaned = cleaned.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+        }
+        terms = JSON.parse(cleaned);
+        if (!Array.isArray(terms)) throw new Error('Not an array');
+        terms = terms.map(t => String(t).trim()).filter(t => t.length > 0);
+    } catch(e) {
+        alert('Could not parse JSON. Make sure you paste a valid JSON array like ["term1", "term2"]');
+        return;
+    }
+
+    if (terms.length === 0) { alert('No terms found in the pasted output'); return; }
+
+    // Switch to bundle builder and populate
+    document.getElementById('prompt-generator').classList.add('hidden');
+    document.getElementById('bundle-builder').classList.remove('hidden');
+    bundleTerms = terms;
+    renderBundleTerms();
+    document.getElementById('bb-terms-section').classList.remove('hidden');
+
+    // Pre-fill name from niche
+    const niche = document.getElementById('pg-niche').value.trim();
+    const lang = document.getElementById('pg-language').value;
+    if (niche && !document.getElementById('bb-name').value) {
+        document.getElementById('bb-name').value = niche.charAt(0).toUpperCase() + niche.slice(1) + ' (' + lang + ')';
+    }
 }
 
 async function deleteBundle(key) {
