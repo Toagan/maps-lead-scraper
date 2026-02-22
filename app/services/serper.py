@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 _rate_limiter = TokenBucket(rate=settings.serper_max_rps)
 _semaphore = asyncio.Semaphore(settings.serper_max_concurrent)
 
-SERPER_URL = "https://google.serper.dev/places"
+SERPER_URL = "https://google.serper.dev/maps"
 
 
 async def search_maps(
@@ -24,13 +24,16 @@ async def search_maps(
     hl: str,
     lat: float,
     lon: float,
-    zoom: int = 14,
+    zoom: int = 16,
     start: int = 0,
 ) -> dict | None:
     """
-    Call Serper /places endpoint.
+    Call Serper /maps endpoint.
 
-    Returns parsed JSON or None on failure.
+    /maps returns 20 results per page and respects the ll coordinate for
+    proximity-based ranking (unlike /places which ignores coordinates).
+    Costs 3 credits per call vs 1 for /places, but yields 10-15x more
+    unique results when combined with grid search.
     """
     payload = {
         "q": query,
@@ -74,7 +77,7 @@ async def search_maps(
 
 def extract_place_data(place: dict, search_term: str, city_name: str) -> dict:
     """Extract normalised fields from a Serper place result. Ported from v1."""
-    categories_list = place.get("categories", [])
+    categories_list = place.get("types", place.get("categories", []))
     if isinstance(categories_list, list):
         categories = ", ".join(categories_list)
     else:
