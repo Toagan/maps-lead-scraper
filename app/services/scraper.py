@@ -14,7 +14,6 @@ from app.services.serper import search_maps, extract_place_data
 from app.services.regions import (
     City,
     get_city_scrape_config,
-    get_worldwide_scrape_config,
     generate_grid_points,
 )
 
@@ -101,12 +100,8 @@ async def run_job(
     # Pre-compute grid points per city so we can calculate accurate total_steps
     city_grids: list[list[tuple[float, float]]] = []
     for city in cities:
-        if _worldwide:
-            # Worldwide cities: single center point
-            city_grids.append([(city.lat, city.lon)])
-        else:
-            grid = generate_grid_points(city)
-            city_grids.append([(gp.lat, gp.lon) for gp in grid])
+        grid = generate_grid_points(city)
+        city_grids.append([(gp.lat, gp.lon) for gp in grid])
 
     total_steps = sum(len(g) for g in city_grids) * len(search_queries)
     current_step = 0
@@ -124,12 +119,8 @@ async def run_job(
 
                 grid_points = city_grids[city_idx]
 
-                if _worldwide:
-                    zoom, max_pages = get_worldwide_scrape_config()
-                    region_code = None
-                else:
-                    zoom, max_pages = get_city_scrape_config(city.population)
-                    region_code = get_region(city.lat, city.lon, country)
+                zoom, max_pages = get_city_scrape_config(city.population)
+                region_code = None if _worldwide else get_region(city.lat, city.lon, country)
 
                 for gp_lat, gp_lon in grid_points:
                     if cancel_event.is_set():
