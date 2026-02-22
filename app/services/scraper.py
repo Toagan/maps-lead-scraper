@@ -87,10 +87,13 @@ async def run_job(
         started_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # Load existing place_ids for dedup (shared across ALL queries)
-    seen_ids = db.get_existing_place_ids(country)
+    # Load existing place_ids — used to avoid counting as "new" but still
+    # allows upserting to refresh data (e.g. phone/hours from /maps endpoint).
+    db_existing_ids = db.get_existing_place_ids(country)
+    # Job-local seen set: prevents processing the same result twice within this job
+    seen_ids: set[str] = set()
     logger.info("Job %s: loaded %d existing place_ids, %d queries, %d cities",
-                job_id, len(seen_ids), len(search_queries), len(cities))
+                job_id, len(db_existing_ids), len(search_queries), len(cities))
 
     total_leads = 0
     total_dupes = 0
@@ -153,6 +156,7 @@ async def run_job(
                             pid = pdata["place_id"]
                             if not pid:
                                 continue
+                            # Already processed in THIS job — true duplicate
                             if pid in seen_ids:
                                 total_dupes += 1
                                 continue
@@ -169,8 +173,12 @@ async def run_job(
                                 continue
 
                             seen_ids.add(pid)
-                            new_on_page += 1
-                            total_leads += 1
+                            is_existing = pid in db_existing_ids
+                            if is_existing:
+                                total_dupes += 1
+                            else:
+                                new_on_page += 1
+                                total_leads += 1
 
                             # Build DB record
                             record = {
@@ -202,7 +210,10 @@ async def run_job(
                                 db.upsert_leads(leads_buffer)
                                 leads_buffer = []
 
-                        # Early break if no new results on page
+                        # Early break if no new results on this page.
+                        # "new" means not previously seen in THIS job or the DB.
+                        # Re-scraping existing leads still upserts but doesn't
+                        # count as new — we stop paginating to save API calls.
                         if new_on_page == 0:
                             break
 
