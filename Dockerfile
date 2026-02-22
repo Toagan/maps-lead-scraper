@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-ARG CACHE_BUST=1
+RUN echo "build-20260222-v2"
 COPY . .
 
 EXPOSE ${PORT:-8000}
