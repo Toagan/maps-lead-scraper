@@ -151,11 +151,19 @@ def get_stats() -> dict:
         with_phone_q = _client.table(LEADS_TABLE).select("*", count="exact").neq("phone", None).neq("phone", "").execute()
         with_phone = with_phone_q.count or 0
 
-        # Per-country counts
+        # Per-country counts — discover countries from jobs table
         by_country = {}
-        for cc in ("de", "at", "ch"):
+        job_countries = set()
+        try:
+            jobs = _client.table(JOBS_TABLE).select("country").limit(500).execute()
+            job_countries = set(r["country"] for r in (jobs.data or []) if r.get("country"))
+        except Exception:
+            pass
+        for cc in sorted({"de", "at", "ch"} | job_countries):
             cq = _client.table(LEADS_TABLE).select("*", count="exact").eq("country", cc).execute()
-            by_country[cc] = cq.count or 0
+            cnt = cq.count or 0
+            if cnt > 0:
+                by_country[cc] = cnt
 
         return {
             "total_leads": total,

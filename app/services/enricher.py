@@ -14,14 +14,17 @@ from app.utils.emails import extract_emails
 
 logger = logging.getLogger(__name__)
 
-# Subpages to try if homepage has no email
+# Subpages to try if homepage has no email (DE + EN)
 SUBPAGES = [
+    "/contact",
+    "/contact-us",
+    "/about",
+    "/about-us",
+    "/get-in-touch",
+    "/team",
     "/kontakt",
     "/impressum",
-    "/contact",
-    "/about",
     "/ueber-uns",
-    "/about-us",
 ]
 
 _semaphore = asyncio.Semaphore(settings.enricher_max_concurrent)
