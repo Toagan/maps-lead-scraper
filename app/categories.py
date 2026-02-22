@@ -145,6 +145,22 @@ CATEGORY_BUNDLES = {
             "Textagentur SEO",
         ],
     },
+    "seo_agencies_en": {
+        "name": "SEO/Content/Marketing Agencies EN (Scaile ICP)",
+        "queries": [
+            "SEO agency",
+            "SEO agency for businesses",
+            "content marketing agency",
+            "online marketing agency",
+            "digital marketing agency",
+            "performance marketing agency",
+            "inbound marketing agency",
+            "SEO consultant",
+            "SEO freelancer",
+            "content agency",
+            "copywriting agency SEO",
+        ],
+    },
     "dental": {
         "name": "Dental & Dentists",
         "queries": ["Zahnarzt", "Zahnklinik", "Zahnarztpraxis"],
