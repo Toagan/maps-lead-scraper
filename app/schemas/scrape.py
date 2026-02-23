@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 
 class ScrapeRequest(BaseModel):
+    job_name: Optional[str] = None  # custom label for this job; defaults to search term / category name
     search_term: str = ""  # single term, OR use category_key
     category_key: Optional[str] = None  # e.g. "baubranche" — runs all queries in bundle
     country: str = "de"

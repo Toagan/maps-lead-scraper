@@ -283,6 +283,7 @@ async def start_scrape(req: ScrapeRequest):
         targeting_config=targeting_config,
         enrich_emails=req.enrich_emails,
         total_locations=len(cities),
+        job_name=req.job_name or None,
     )
 
     # Credit estimate

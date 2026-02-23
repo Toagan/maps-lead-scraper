@@ -270,12 +270,13 @@ def create_job(
     targeting_config: dict,
     enrich_emails: bool,
     total_locations: int,
+    job_name: str | None = None,
 ) -> str:
     job_id = str(uuid.uuid4())
     if not _client:
         return job_id
     try:
-        _client.table(JOBS_TABLE).insert({
+        row = {
             "id": job_id,
             "status": "pending",
             "search_term": search_term,
@@ -284,7 +285,10 @@ def create_job(
             "targeting_config": targeting_config,
             "enrich_emails": enrich_emails,
             "total_locations": total_locations,
-        }).execute()
+        }
+        if job_name:
+            row["job_name"] = job_name
+        _client.table(JOBS_TABLE).insert(row).execute()
     except Exception as exc:
         logger.error("Error creating job: %s", exc)
     return job_id

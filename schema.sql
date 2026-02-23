@@ -44,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_scraper_leads_place_id ON scraper_leads(place_id)
 CREATE TABLE IF NOT EXISTS scrape_jobs (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     status              TEXT NOT NULL DEFAULT 'pending',
+    job_name            TEXT,
     search_term         TEXT NOT NULL,
     country             TEXT NOT NULL,
     targeting_mode      TEXT NOT NULL,
