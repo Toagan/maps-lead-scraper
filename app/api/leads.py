@@ -29,6 +29,7 @@ async def get_leads(
     has_phone: Optional[bool] = None,
     has_website: Optional[bool] = None,
     search_term: Optional[str] = None,
+    min_relevance: Optional[float] = None,
     limit: int = Query(default=100, le=50000),
     offset: int = 0,
     format: Optional[str] = None,
@@ -41,6 +42,7 @@ async def get_leads(
         has_phone=has_phone,
         has_website=has_website,
         search_term=search_term,
+        min_relevance=min_relevance,
         limit=limit,
         offset=offset,
     )

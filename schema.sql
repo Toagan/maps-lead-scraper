@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS scraper_leads (
     region         TEXT,
     city           TEXT,
     search_term    TEXT,
+    category_relevance REAL,
     scraped_at     TIMESTAMPTZ DEFAULT NOW(),
     enriched_at    TIMESTAMPTZ,
     updated_at     TIMESTAMPTZ DEFAULT NOW()

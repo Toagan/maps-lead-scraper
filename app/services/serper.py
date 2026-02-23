@@ -75,6 +75,45 @@ async def search_maps(
     return None
 
 
+def compute_category_relevance(search_term: str, category: str, categories_str: str) -> float:
+    """Score 0.0–1.0 how well the result's category matches the search term.
+
+    Uses lightweight substring matching that works across German/English
+    without needing a mapping table.  Never used to drop results — only
+    to score them so users can filter at export time.
+    """
+    if not category and not categories_str:
+        return 0.5  # no data — keep neutral
+
+    search_lower = search_term.lower().strip()
+    cat_lower = (category or "").lower()
+    # types list comes as comma-separated string; normalise underscores
+    cats_lower = (categories_str or "").lower().replace("_", " ")
+    combined = f"{cat_lower} {cats_lower}"
+
+    # Direct substring: "Fitnessstudio" in "Fitnessstudio" or vice-versa
+    if search_lower in cat_lower or cat_lower in search_lower:
+        return 1.0
+
+    # Any significant search word appears in the category fields
+    for word in search_lower.split():
+        if len(word) >= 3 and word in combined:
+            return 0.9
+
+    # Reverse check: any category word appears inside the search term.
+    # Catches German/English overlaps like "fitness" (from types) inside
+    # "fitnessstudio" (German search term).
+    for word in combined.replace(",", " ").split():
+        if len(word) >= 4 and word in search_lower:
+            return 0.8
+
+    # Category exists but zero overlap with search term
+    if category:
+        return 0.3
+
+    return 0.5
+
+
 def extract_place_data(place: dict, search_term: str, city_name: str) -> dict:
     """Extract normalised fields from a Serper place result. Ported from v1."""
     categories_list = place.get("types", place.get("categories", []))

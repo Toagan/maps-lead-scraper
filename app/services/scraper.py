@@ -10,7 +10,7 @@ from typing import List
 from app.geo import get_region, get_country_module, haversine_km
 from app.geo.worldwide import is_worldwide, get_serper_params
 from app.services import database as db
-from app.services.serper import search_maps, extract_place_data
+from app.services.serper import search_maps, extract_place_data, compute_category_relevance
 from app.services.regions import (
     City,
     get_city_scrape_config,
@@ -150,8 +150,9 @@ async def run_job(
                         if not data or "places" not in data or not data["places"]:
                             break
 
+                        places = data["places"]
                         new_on_page = 0
-                        for place in data["places"]:
+                        for place in places:
                             pdata = extract_place_data(place, search_term, city.name)
                             pid = pdata["place_id"]
                             if not pid:
@@ -180,6 +181,13 @@ async def run_job(
                                 new_on_page += 1
                                 total_leads += 1
 
+                            # Category relevance scoring
+                            relevance = compute_category_relevance(
+                                search_term,
+                                pdata.get("category", ""),
+                                pdata.get("categories", ""),
+                            )
+
                             # Build DB record
                             record = {
                                 "place_id": pid,
@@ -202,6 +210,7 @@ async def run_job(
                                 "region": region_code,
                                 "city": city.name,
                                 "search_term": search_term,
+                                "category_relevance": relevance,
                             }
                             leads_buffer.append(record)
 
@@ -210,11 +219,14 @@ async def run_job(
                                 db.upsert_leads(leads_buffer)
                                 leads_buffer = []
 
-                        # Early break if no new results on this page.
-                        # "new" means not previously seen in THIS job or the DB.
-                        # Re-scraping existing leads still upserts but doesn't
-                        # count as new — we stop paginating to save API calls.
-                        if new_on_page == 0:
+                        # Partial page = last page (Google has no more results)
+                        if len(places) < 20:
+                            break
+
+                        # Adaptive duplicate threshold: stop paginating when
+                        # <25% of the page is new (>75% dupes/existing).
+                        # Saves API credits on diminishing returns.
+                        if new_on_page < len(places) * 0.25:
                             break
 
                 # Update job progress periodically (after all grid points for a city)
