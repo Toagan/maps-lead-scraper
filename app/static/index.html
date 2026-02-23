@@ -949,8 +949,8 @@ async function loadJobs() {
 }
 
 function startJobPoll() {
-    stopJobPoll();
-    jobPollTimer = setInterval(loadJobs, 3000);
+    if (jobPollTimer) return;  // already polling
+    jobPollTimer = setInterval(loadJobs, 10000);
 }
 function stopJobPoll() {
     if (jobPollTimer) { clearInterval(jobPollTimer); jobPollTimer = null; }
