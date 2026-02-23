@@ -10,7 +10,10 @@ from typing import List
 from app.geo import get_region, get_country_module, haversine_km
 from app.geo.worldwide import is_worldwide, get_serper_params
 from app.services import database as db
-from app.services.serper import search_maps, extract_place_data, compute_category_relevance
+from app.services.serper import (
+    search_maps, extract_place_data, compute_category_relevance,
+    is_place_closed, parse_dach_address,
+)
 from app.services.regions import (
     City,
     get_city_scrape_config,
@@ -51,6 +54,85 @@ def _result_within_bounds(
         # No coordinates returned — keep the result rather than discard
         return True
     return haversine_km(search_lat, search_lon, result_lat, result_lon) <= max_km
+
+
+def estimate_credits(cities: List[City], search_queries: List[str]) -> dict:
+    """Estimate API credits before starting a run."""
+    total_grid_points = 0
+    for city in cities:
+        grid = generate_grid_points(city)
+        total_grid_points += len(grid)
+
+    total_steps = total_grid_points * len(search_queries)
+    # Average pages per step: grid cities ~2, single-point ~3
+    avg_pages = 2.5
+    estimated_calls = int(total_steps * avg_pages)
+    credits_per_call = 3  # Serper /maps = 3 credits
+    estimated_credits = estimated_calls * credits_per_call
+
+    return {
+        "total_grid_points": total_grid_points,
+        "total_steps": total_steps,
+        "estimated_api_calls": estimated_calls,
+        "estimated_credits": estimated_credits,
+        "search_queries": len(search_queries),
+        "cities": len(cities),
+    }
+
+
+async def preview_search(
+    search_term: str,
+    country: str,
+    city: City,
+) -> dict:
+    """Run a single-page test search and return relevance analysis."""
+    from app.geo.worldwide import is_worldwide as _is_ww, get_serper_params as _get_sp
+
+    if _is_ww(country):
+        gl, hl = _get_sp(country)
+    else:
+        mod = get_country_module(country)
+        gl, hl = mod.SERPER_GL, mod.SERPER_HL
+
+    query = f"{search_term} in {city.name}"
+    data = await search_maps(
+        query=query, gl=gl, hl=hl,
+        lat=city.lat, lon=city.lon, zoom=16, start=0,
+    )
+
+    if not data or "places" not in data or not data["places"]:
+        return {"query": query, "total": 0, "matching": 0, "results": []}
+
+    results = []
+    matching = 0
+    for place in data["places"]:
+        if is_place_closed(place):
+            continue
+        pdata = extract_place_data(place, search_term, city.name)
+        relevance = compute_category_relevance(
+            search_term,
+            pdata.get("category", ""),
+            pdata.get("categories", ""),
+        )
+        if relevance >= 0.5:
+            matching += 1
+        results.append({
+            "name": pdata["name"],
+            "category": pdata.get("category", ""),
+            "categories": pdata.get("categories", ""),
+            "relevance": relevance,
+            "website": pdata.get("website", ""),
+            "rating": pdata.get("rating"),
+            "review_count": pdata.get("review_count"),
+        })
+
+    return {
+        "query": query,
+        "total": len(results),
+        "matching": matching,
+        "match_rate": f"{matching}/{len(results)}",
+        "results": results,
+    }
 
 
 async def run_job(
@@ -98,7 +180,11 @@ async def run_job(
     total_leads = 0
     total_dupes = 0
     total_api_calls = 0
+    total_closed_skipped = 0
+    saturated_points = 0
     leads_buffer: list[dict] = []
+    # Track business name frequencies for chain detection
+    name_counts: dict[str, int] = {}
 
     # Pre-compute grid points per city so we can calculate accurate total_steps
     city_grids: list[list[tuple[float, float]]] = []
@@ -131,6 +217,7 @@ async def run_job(
 
                     current_step += 1
                     query = f"{search_term} in {city.name}"
+                    last_page_count = 0
 
                     for page in range(max_pages):
                         if cancel_event.is_set():
@@ -152,7 +239,13 @@ async def run_job(
 
                         places = data["places"]
                         new_on_page = 0
+                        last_page_count = len(places)
                         for place in places:
+                            # Skip permanently closed businesses
+                            if is_place_closed(place):
+                                total_closed_skipped += 1
+                                continue
+
                             pdata = extract_place_data(place, search_term, city.name)
                             pid = pdata["place_id"]
                             if not pid:
@@ -188,16 +281,30 @@ async def run_job(
                                 pdata.get("categories", ""),
                             )
 
+                            # Quality flags
+                            review_count = pdata.get("review_count") or 0
+                            low_confidence = review_count <= 2
+
+                            # Track name frequency for chain detection
+                            biz_name = pdata["name"]
+                            name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
+
+                            # Parse address into structured components (DACH)
+                            addr_parts = parse_dach_address(pdata.get("address") or "")
+
                             # Build DB record
                             record = {
                                 "place_id": pid,
                                 "cid": pdata.get("cid") or None,
-                                "name": pdata["name"],
+                                "name": biz_name,
                                 "address": pdata.get("address") or None,
+                                "street": addr_parts["street"],
+                                "postal_code": addr_parts["postal_code"],
+                                "city_parsed": addr_parts["city_parsed"],
                                 "phone": pdata.get("phone") or None,
                                 "website": pdata.get("website") or None,
                                 "rating": pdata.get("rating"),
-                                "review_count": pdata.get("review_count"),
+                                "review_count": review_count,
                                 "category": pdata.get("category") or None,
                                 "categories": pdata.get("categories") or None,
                                 "latitude": pdata.get("latitude"),
@@ -211,6 +318,8 @@ async def run_job(
                                 "city": city.name,
                                 "search_term": search_term,
                                 "category_relevance": relevance,
+                                "low_confidence": low_confidence,
+                                "job_id": job_id,
                             }
                             leads_buffer.append(record)
 
@@ -220,14 +329,19 @@ async def run_job(
                                 leads_buffer = []
 
                         # Partial page = last page (Google has no more results)
-                        if len(places) < 20:
+                        if last_page_count < 20:
                             break
 
                         # Adaptive duplicate threshold: stop paginating when
                         # <25% of the page is new (>75% dupes/existing).
                         # Saves API credits on diminishing returns.
-                        if new_on_page < len(places) * 0.25:
+                        if new_on_page < last_page_count * 0.25:
                             break
+
+                    # Saturation detection: if last page of this grid point
+                    # was full AND we hit max_pages, flag it
+                    if page + 1 >= max_pages and last_page_count >= 20:
+                        saturated_points += 1
 
                 # Update job progress periodically (after all grid points for a city)
                 db.update_job(
@@ -244,6 +358,23 @@ async def run_job(
             db.upsert_leads(leads_buffer)
             leads_buffer = []
 
+        # Chain detection: flag businesses whose name appeared 5+ times
+        chain_names = {n for n, c in name_counts.items() if c >= 5}
+        if chain_names:
+            db.flag_chains(job_id, chain_names)
+            logger.info("Job %s: flagged %d chain names (%d leads)",
+                        job_id, len(chain_names),
+                        sum(c for n, c in name_counts.items() if n in chain_names))
+
+        # Log saturation stats
+        if saturated_points > 0:
+            sat_rate = saturated_points / max(total_steps, 1)
+            logger.warning(
+                "Job %s: %d/%d grid points saturated (%.0f%%). "
+                "Consider tighter grid or max mode for better coverage.",
+                job_id, saturated_points, total_steps, sat_rate * 100,
+            )
+
         # Email enrichment pass
         enriched = 0
         if enrich_emails and not cancel_event.is_set():
@@ -259,10 +390,12 @@ async def run_job(
             total_duplicates=total_dupes,
             total_api_calls=total_api_calls,
             total_enriched=enriched,
+            saturated_points=saturated_points,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
-        logger.info("Job %s %s: %d leads, %d dupes, %d API calls",
-                     job_id, status, total_leads, total_dupes, total_api_calls)
+        logger.info("Job %s %s: %d leads, %d dupes, %d API calls, %d saturated, %d closed skipped",
+                     job_id, status, total_leads, total_dupes, total_api_calls,
+                     saturated_points, total_closed_skipped)
 
     except Exception as exc:
         logger.exception("Job %s failed: %s", job_id, exc)

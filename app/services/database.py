@@ -72,6 +72,22 @@ def upsert_leads(records: list[dict]) -> int:
         return 0
 
 
+def flag_chains(job_id: str, chain_names: set[str]) -> int:
+    """Mark leads from this job as is_chain=true if their name is in chain_names."""
+    if not _client or not chain_names:
+        return 0
+    flagged = 0
+    for name in chain_names:
+        try:
+            _client.table(LEADS_TABLE).update(
+                {"is_chain": True}
+            ).eq("job_id", job_id).eq("name", name).execute()
+            flagged += 1
+        except Exception as exc:
+            logger.error("Error flagging chain '%s': %s", name, exc)
+    return flagged
+
+
 def update_lead_email(place_id: str, email: str, source: str) -> bool:
     if not _client:
         return False
@@ -91,6 +107,8 @@ def _build_leads_query(
     country=None, region=None, category=None,
     has_email=None, has_phone=None, has_website=None,
     search_term=None, min_relevance=None,
+    job_id=None, exclude_chains=None, exclude_low_confidence=None,
+    min_reviews=None,
 ):
     q = _client.table(LEADS_TABLE).select("*", count="exact")
     if country:
@@ -109,6 +127,14 @@ def _build_leads_query(
         q = q.ilike("search_term", f"%{search_term}%")
     if min_relevance is not None:
         q = q.gte("category_relevance", min_relevance)
+    if job_id:
+        q = q.eq("job_id", job_id)
+    if exclude_chains:
+        q = q.neq("is_chain", True)
+    if exclude_low_confidence:
+        q = q.neq("low_confidence", True)
+    if min_reviews is not None:
+        q = q.gte("review_count", min_reviews)
     return q
 
 
@@ -116,6 +142,8 @@ def query_leads(
     country=None, region=None, category=None,
     has_email=None, has_phone=None, has_website=None,
     search_term=None, min_relevance=None,
+    job_id=None, exclude_chains=None, exclude_low_confidence=None,
+    min_reviews=None,
     limit: int = 100, offset: int = 0,
 ) -> tuple:
     if not _client:
@@ -127,7 +155,7 @@ def query_leads(
         fetched = 0
         total = 0
         while fetched < limit:
-            q = _build_leads_query(country, region, category, has_email, has_phone, has_website, search_term, min_relevance)
+            q = _build_leads_query(country, region, category, has_email, has_phone, has_website, search_term, min_relevance, job_id, exclude_chains, exclude_low_confidence, min_reviews)
             q = q.range(offset + fetched, offset + fetched + page_size - 1)
             result = q.execute()
             if total == 0:

@@ -114,6 +114,62 @@ def compute_category_relevance(search_term: str, category: str, categories_str: 
     return 0.5
 
 
+_CLOSED_INDICATORS = {
+    "permanently closed", "dauerhaft geschlossen", "définitivement fermé",
+    "chiuso definitivamente", "permanently_closed",
+}
+
+
+def is_place_closed(place: dict) -> bool:
+    """Detect permanently closed businesses from Serper response fields."""
+    # Serper may include a businessStatus field
+    status = (place.get("businessStatus") or place.get("business_status") or "").lower()
+    if "closed" in status:
+        return True
+    # Check title and description for closure indicators
+    title = (place.get("title") or "").lower()
+    desc = (place.get("description") or place.get("snippet") or "").lower()
+    for indicator in _CLOSED_INDICATORS:
+        if indicator in title or indicator in desc:
+            return True
+    return False
+
+
+def parse_dach_address(address: str) -> dict:
+    """Parse a DACH-format address into structured components.
+
+    Handles patterns like:
+      "Hauptstraße 15, 80331 München"
+      "Bahnhofstr. 3a, 8001 Zürich, Schweiz"
+      "Musterweg 7, 1010 Wien, Österreich"
+    """
+    import re
+    result = {"street": None, "postal_code": None, "city_parsed": None}
+    if not address:
+        return result
+
+    # Strip trailing country names
+    cleaned = re.sub(r',?\s*(Deutschland|Germany|Österreich|Austria|Schweiz|Switzerland|Suisse)$', '', address, flags=re.IGNORECASE).strip()
+
+    # Pattern: Street ..., PLZ City
+    m = re.match(r'^(.+?),\s*(\d{4,5})\s+(.+?)$', cleaned)
+    if m:
+        result["street"] = m.group(1).strip()
+        result["postal_code"] = m.group(2).strip()
+        # City might have trailing comma+region, take first part
+        city_part = m.group(3).split(",")[0].strip()
+        result["city_parsed"] = city_part
+        return result
+
+    # Fallback: just PLZ somewhere in the string
+    m2 = re.search(r'\b(\d{4,5})\s+(\S+(?:\s+\S+)?)', cleaned)
+    if m2:
+        result["postal_code"] = m2.group(1).strip()
+        result["city_parsed"] = m2.group(2).split(",")[0].strip()
+
+    return result
+
+
 def extract_place_data(place: dict, search_term: str, city_name: str) -> dict:
     """Extract normalised fields from a Serper place result. Ported from v1."""
     categories_list = place.get("types", place.get("categories", []))

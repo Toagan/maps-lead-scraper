@@ -12,7 +12,7 @@ from app.geo.worldwide import is_worldwide
 from app.schemas.scrape import ScrapeRequest, ScrapeResponse
 from app.services import database as db
 from app.services.regions import resolve_cities
-from app.services.scraper import run_job
+from app.services.scraper import run_job, estimate_credits, preview_search
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,82 @@ async def delete_bundle(key: str):
 # Scrape endpoint
 # ---------------------------------------------------------------------------
 
+@router.post("/scrape/preview")
+async def scrape_preview(req: ScrapeRequest):
+    """Run a 1-page test search (1 API call) and return relevance analysis."""
+    # Resolve search terms
+    all_bundles = _all_bundles()
+    if req.category_key:
+        bundle = all_bundles.get(req.category_key)
+        if not bundle:
+            raise HTTPException(status_code=400, detail=f"Unknown category: {req.category_key}")
+        search_queries = bundle["queries"]
+    elif req.search_term:
+        search_queries = [req.search_term]
+    else:
+        raise HTTPException(status_code=400, detail="Provide search_term or category_key")
+
+    # Resolve cities — just take the first one for preview
+    try:
+        cities = resolve_cities(
+            country=req.country,
+            targeting_mode=req.targeting_mode,
+            regions=req.regions,
+            cities=req.cities,
+            center_lat=req.center_lat,
+            center_lng=req.center_lng,
+            radius_km=req.radius_km,
+            scrape_mode=req.scrape_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not cities:
+        raise HTTPException(status_code=400, detail="No cities matched")
+
+    # Preview uses first query + first (largest) city
+    result = await preview_search(
+        search_term=search_queries[0],
+        country=req.country,
+        city=cities[0],
+    )
+    return result
+
+
+@router.post("/scrape/estimate")
+async def scrape_estimate(req: ScrapeRequest):
+    """Estimate credits needed for a scrape run WITHOUT starting it."""
+    all_bundles = _all_bundles()
+    if req.category_key:
+        bundle = all_bundles.get(req.category_key)
+        if not bundle:
+            raise HTTPException(status_code=400, detail=f"Unknown category: {req.category_key}")
+        search_queries = bundle["queries"]
+    elif req.search_term:
+        search_queries = [req.search_term]
+    else:
+        raise HTTPException(status_code=400, detail="Provide search_term or category_key")
+
+    try:
+        cities = resolve_cities(
+            country=req.country,
+            targeting_mode=req.targeting_mode,
+            regions=req.regions,
+            cities=req.cities,
+            center_lat=req.center_lat,
+            center_lng=req.center_lng,
+            radius_km=req.radius_km,
+            scrape_mode=req.scrape_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not cities:
+        raise HTTPException(status_code=400, detail="No cities matched")
+
+    return estimate_credits(cities, search_queries)
+
+
 @router.post("/scrape", response_model=ScrapeResponse)
 async def start_scrape(req: ScrapeRequest):
     # Resolve search terms: category bundle or single term
@@ -209,6 +285,9 @@ async def start_scrape(req: ScrapeRequest):
         total_locations=len(cities),
     )
 
+    # Credit estimate
+    credit_info = estimate_credits(cities, search_queries)
+
     # Launch background task
     asyncio.create_task(
         run_job(
@@ -225,5 +304,6 @@ async def start_scrape(req: ScrapeRequest):
         job_id=job_id,
         status="pending",
         total_locations=len(cities),
-        message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(cities)} locations",
+        estimated_credits=credit_info["estimated_credits"],
+        message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(cities)} locations (~{credit_info['estimated_credits']} credits)",
     )

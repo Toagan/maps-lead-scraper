@@ -21,4 +21,5 @@ class ScrapeResponse(BaseModel):
     job_id: str
     status: str
     total_locations: int
+    estimated_credits: int = 0
     message: str
