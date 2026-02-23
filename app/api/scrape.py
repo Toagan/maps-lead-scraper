@@ -297,13 +297,16 @@ async def start_scrape(req: ScrapeRequest):
             cities=cities,
             enrich_emails=req.enrich_emails,
             scrape_mode=req.scrape_mode,
+            credit_limit=req.credit_limit,
         )
     )
 
+    est = credit_info["estimated_credits"]
+    limit_msg = f", limit: {req.credit_limit}" if req.credit_limit else ", no limit"
     return ScrapeResponse(
         job_id=job_id,
         status="pending",
         total_locations=len(cities),
-        estimated_credits=credit_info["estimated_credits"],
-        message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(cities)} locations (~{credit_info['estimated_credits']} credits)",
+        estimated_credits=est,
+        message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(cities)} locations (~{est} credits{limit_msg})",
     )

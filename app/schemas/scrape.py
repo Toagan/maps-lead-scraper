@@ -15,6 +15,7 @@ class ScrapeRequest(BaseModel):
     radius_km: Optional[float] = None
     enrich_emails: bool = False
     scrape_mode: str = "smart"  # quick | smart | thorough | max
+    credit_limit: Optional[int] = None  # max credits to spend; None = unlimited
 
 
 class ScrapeResponse(BaseModel):

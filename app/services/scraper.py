@@ -135,6 +135,9 @@ async def preview_search(
     }
 
 
+_CREDITS_PER_CALL = 3  # Serper /maps = 3 credits per API call
+
+
 async def run_job(
     job_id: str,
     search_queries: List[str],
@@ -142,6 +145,7 @@ async def run_job(
     cities: List[City],
     enrich_emails: bool = False,
     scrape_mode: str = "smart",
+    credit_limit: int | None = None,
 ) -> None:
     """
     Main scraping loop executed as a background task.
@@ -233,6 +237,12 @@ async def run_job(
                             start=page * 20,
                         )
                         total_api_calls += 1
+
+                        # Credit budget check
+                        if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
+                            logger.info("Job %s: credit limit reached (%d/%d)",
+                                        job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
+                            cancel_event.set()
 
                         if not data or "places" not in data or not data["places"]:
                             break
@@ -382,7 +392,12 @@ async def run_job(
             enriched = await enrich_leads(country, job_id, cancel_event)
 
         # Mark completed
-        status = "cancelled" if cancel_event.is_set() else "completed"
+        if not cancel_event.is_set():
+            status = "completed"
+        elif credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
+            status = "budget_reached"
+        else:
+            status = "cancelled"
         db.update_job(
             job_id,
             status=status,
