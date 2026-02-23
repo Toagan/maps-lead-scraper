@@ -160,10 +160,11 @@ async def scrape_preview(req: ScrapeRequest):
     else:
         raise HTTPException(status_code=400, detail="Provide search_term or category_key")
 
-    # Resolve cities — just take the first one for preview
+    # Resolve cities — just take the first country's first city for preview
+    preview_country = (req.countries[0] if req.countries else req.country)
     try:
         cities = resolve_cities(
-            country=req.country,
+            country=preview_country,
             targeting_mode=req.targeting_mode,
             regions=req.regions,
             cities=req.cities,
@@ -181,7 +182,7 @@ async def scrape_preview(req: ScrapeRequest):
     # Preview uses first query + first (largest) city
     result = await preview_search(
         search_term=search_queries[0],
-        country=req.country,
+        country=preview_country,
         city=cities[0],
     )
     return result
@@ -201,24 +202,27 @@ async def scrape_estimate(req: ScrapeRequest):
     else:
         raise HTTPException(status_code=400, detail="Provide search_term or category_key")
 
+    country_list = req.countries if req.countries else [req.country]
+    all_cities = []
     try:
-        cities = resolve_cities(
-            country=req.country,
-            targeting_mode=req.targeting_mode,
-            regions=req.regions,
-            cities=req.cities,
-            center_lat=req.center_lat,
-            center_lng=req.center_lng,
-            radius_km=req.radius_km,
-            scrape_mode=req.scrape_mode,
-        )
+        for c in country_list:
+            all_cities.extend(resolve_cities(
+                country=c,
+                targeting_mode=req.targeting_mode,
+                regions=req.regions,
+                cities=req.cities,
+                center_lat=req.center_lat,
+                center_lng=req.center_lng,
+                radius_km=req.radius_km,
+                scrape_mode=req.scrape_mode,
+            ))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    if not cities:
+    if not all_cities:
         raise HTTPException(status_code=400, detail="No cities matched")
 
-    return estimate_credits(cities, search_queries)
+    return estimate_credits(all_cities, search_queries)
 
 
 @router.post("/scrape", response_model=ScrapeResponse)
@@ -240,33 +244,39 @@ async def start_scrape(req: ScrapeRequest):
     else:
         raise HTTPException(status_code=400, detail="Provide search_term or category_key")
 
+    # Multi-country support: countries list overrides single country
+    country_list = req.countries if req.countries else [req.country]
+
     # Worldwide: force country targeting only
-    if is_worldwide(req.country):
-        if req.targeting_mode != "country":
+    for c in country_list:
+        if is_worldwide(c) and req.targeting_mode != "country":
             raise HTTPException(
                 status_code=400,
                 detail="Worldwide mode only supports 'country' targeting",
             )
 
-    # Resolve cities
+    # Resolve cities for all countries
+    all_cities = []
     try:
-        cities = resolve_cities(
-            country=req.country,
-            targeting_mode=req.targeting_mode,
-            regions=req.regions,
-            cities=req.cities,
-            center_lat=req.center_lat,
-            center_lng=req.center_lng,
-            radius_km=req.radius_km,
-            scrape_mode=req.scrape_mode,
-        )
+        for c in country_list:
+            all_cities.extend(resolve_cities(
+                country=c,
+                targeting_mode=req.targeting_mode,
+                regions=req.regions,
+                cities=req.cities,
+                center_lat=req.center_lat,
+                center_lng=req.center_lng,
+                radius_km=req.radius_km,
+                scrape_mode=req.scrape_mode,
+            ))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    if not cities:
+    if not all_cities:
         raise HTTPException(status_code=400, detail="No cities matched the targeting config")
 
     # Persist job
+    country_label = ",".join(c.upper() for c in country_list)
     targeting_config = {
         "regions": req.regions,
         "cities": req.cities,
@@ -275,27 +285,28 @@ async def start_scrape(req: ScrapeRequest):
         "radius_km": req.radius_km,
         "scrape_mode": req.scrape_mode,
         "category_key": req.category_key,
+        "countries": country_list,
     }
     job_id = db.create_job(
         search_term=display_name,
-        country=req.country,
+        country=country_label,
         targeting_mode=req.targeting_mode,
         targeting_config=targeting_config,
         enrich_emails=req.enrich_emails,
-        total_locations=len(cities),
+        total_locations=len(all_cities),
         job_name=req.job_name or None,
     )
 
     # Credit estimate
-    credit_info = estimate_credits(cities, search_queries)
+    credit_info = estimate_credits(all_cities, search_queries)
 
     # Launch background task
     asyncio.create_task(
         run_job(
             job_id=job_id,
             search_queries=search_queries,
-            country=req.country,
-            cities=cities,
+            country=country_list[0],
+            cities=all_cities,
             enrich_emails=req.enrich_emails,
             scrape_mode=req.scrape_mode,
             credit_limit=req.credit_limit,
@@ -307,7 +318,7 @@ async def start_scrape(req: ScrapeRequest):
     return ScrapeResponse(
         job_id=job_id,
         status="pending",
-        total_locations=len(cities),
+        total_locations=len(all_cities),
         estimated_credits=est,
-        message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(cities)} locations (~{est} credits{limit_msg})",
+        message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(all_cities)} locations in {country_label} (~{est} credits{limit_msg})",
     )

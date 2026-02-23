@@ -159,12 +159,17 @@ async def run_job(
     cancel_event = asyncio.Event()
     _running_jobs[job_id] = cancel_event
 
-    _worldwide = is_worldwide(country)
-    if _worldwide:
-        gl, hl = get_serper_params(country)
-    else:
-        mod = get_country_module(country)
-        gl, hl = mod.SERPER_GL, mod.SERPER_HL
+    # Cache gl/hl per country code (multi-country jobs have mixed cities)
+    _gl_hl_cache: dict[str, tuple[str, str]] = {}
+
+    def _get_gl_hl(cc: str) -> tuple[str, str]:
+        if cc not in _gl_hl_cache:
+            if is_worldwide(cc):
+                _gl_hl_cache[cc] = get_serper_params(cc)
+            else:
+                mod = get_country_module(cc)
+                _gl_hl_cache[cc] = (mod.SERPER_GL, mod.SERPER_HL)
+        return _gl_hl_cache[cc]
 
     # Mark job as running
     db.update_job(
@@ -173,9 +178,11 @@ async def run_job(
         started_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # Load existing place_ids — used to avoid counting as "new" but still
-    # allows upserting to refresh data (e.g. phone/hours from /maps endpoint).
-    db_existing_ids = db.get_existing_place_ids(country)
+    # Load existing place_ids for all countries in this job
+    seen_countries = {c.country or country for c in cities}
+    db_existing_ids: set[str] = set()
+    for cc in seen_countries:
+        db_existing_ids.update(db.get_existing_place_ids(cc))
     # Job-local seen set: prevents processing the same result twice within this job
     seen_ids: set[str] = set()
     logger.info("Job %s: loaded %d existing place_ids, %d queries, %d cities",
@@ -213,7 +220,10 @@ async def run_job(
                 grid_points = city_grids[city_idx]
 
                 zoom, max_pages = get_city_scrape_config(city.population)
-                region_code = None if _worldwide else get_region(city.lat, city.lon, country)
+                city_country = city.country or country
+                city_ww = is_worldwide(city_country)
+                region_code = None if city_ww else get_region(city.lat, city.lon, city_country)
+                gl, hl = _get_gl_hl(city_country)
 
                 for gp_lat, gp_lon in grid_points:
                     if cancel_event.is_set():
@@ -323,7 +333,7 @@ async def run_job(
                                 "operating_hours": pdata.get("operating_hours"),
                                 "price_range": pdata.get("price_range") or None,
                                 "description": pdata.get("description") or None,
-                                "country": country,
+                                "country": city_country,
                                 "region": region_code,
                                 "city": city.name,
                                 "search_term": search_term,
@@ -389,7 +399,10 @@ async def run_job(
         enriched = 0
         if enrich_emails and not cancel_event.is_set():
             from app.services.enricher import enrich_leads
-            enriched = await enrich_leads(country, job_id, cancel_event)
+            for cc in seen_countries:
+                if cancel_event.is_set():
+                    break
+                enriched += await enrich_leads(cc, job_id, cancel_event)
 
         # Mark completed
         if not cancel_event.is_set():

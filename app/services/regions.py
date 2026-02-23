@@ -15,6 +15,7 @@ class City:
     lat: float
     lon: float
     population: int
+    country: str = ""  # ISO code, e.g. "de", "at", "ch"
 
 
 # Population thresholds per scrape mode
@@ -51,6 +52,7 @@ def load_cities(country_code: str) -> list[City]:
                 lat=float(parts[1].strip()),
                 lon=float(parts[2].strip()),
                 population=pop,
+                country=country_code,
             ))
     return cities
 
@@ -82,6 +84,7 @@ def load_plz_grid(country_code: str = "de") -> list[City]:
                     lat=float(parts[1].strip()),
                     lon=float(parts[2].strip()),
                     population=0,
+                    country=country_code,
                 ))
     return entries
 

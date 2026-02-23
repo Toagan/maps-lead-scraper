@@ -7,7 +7,8 @@ class ScrapeRequest(BaseModel):
     job_name: Optional[str] = None  # custom label for this job; defaults to search term / category name
     search_term: str = ""  # single term, OR use category_key
     category_key: Optional[str] = None  # e.g. "baubranche" — runs all queries in bundle
-    country: str = "de"
+    country: str = "de"  # single country OR first of countries list
+    countries: Optional[List[str]] = None  # e.g. ["de","at","ch"] — overrides country
     targeting_mode: str = "country"  # country | regions | cities | radius
     regions: Optional[List[str]] = None
     cities: Optional[List[str]] = None

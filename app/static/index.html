@@ -776,21 +776,25 @@ function getSelectedDachCountries() {
     return [...document.querySelectorAll('input[name="dach_country"]:checked')].map(c => c.value);
 }
 
-function buildScrapeBody(countryOverride) {
+function buildScrapeBody() {
     const mode = document.querySelector('input[name="search_mode"]:checked').value;
     const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
     const isWW = regionMode === 'worldwide';
     const creditLimit = document.getElementById('credit_limit').value;
     const jobName = document.getElementById('job_name').value.trim();
-    const country = countryOverride || (isWW ? document.getElementById('ww-country').value : getSelectedDachCountries()[0]);
+    const dachCountries = getSelectedDachCountries();
     const body = {
-        country: country,
+        country: isWW ? document.getElementById('ww-country').value : dachCountries[0],
         targeting_mode: isWW ? 'country' : document.getElementById('targeting_mode').value,
         scrape_mode: document.getElementById('scrape_mode').value,
         enrich_emails: document.getElementById('enrich_emails').checked,
         credit_limit: creditLimit ? parseInt(creditLimit) : null,
         job_name: jobName || null,
     };
+    // Multi-country DACH: send countries array
+    if (!isWW && dachCountries.length > 1) {
+        body.countries = dachCountries;
+    }
     if (mode === 'term') {
         body.search_term = document.getElementById('search_term').value.trim();
     } else {
@@ -869,39 +873,25 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
     const resultDiv = document.getElementById('scrape-result');
     resultDiv.classList.add('hidden');
 
-    const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
-    const isWW = regionMode === 'worldwide';
-    const countries = isWW ? [document.getElementById('ww-country').value] : getSelectedDachCountries();
+    const body = buildScrapeBody();
+    if (!body.search_term && !body.category_key) { alert('Enter a search term or select a category'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
+    if (!body.country && !(body.countries && body.countries.length)) { alert('Select at least one country'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
 
-    if (!countries.length) { alert('Select at least one country'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
-
-    const testBody = buildScrapeBody(countries[0]);
-    if (!testBody.search_term && !testBody.category_key) { alert('Enter a search term or select a category'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
-
-    const messages = [];
-    const errors = [];
-    for (const c of countries) {
-        const body = buildScrapeBody(c);
-        try {
-            const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-            const d = await r.json();
-            if (r.ok) {
-                messages.push(d.message);
-            } else {
-                errors.push(`${c.toUpperCase()}: ${d.detail || 'Error'}`);
-            }
-        } catch(err) {
-            errors.push(`${c.toUpperCase()}: ${err.message}`);
+    try {
+        const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const d = await r.json();
+        resultDiv.classList.remove('hidden');
+        if (r.ok) {
+            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-green-50 text-green-800 border border-green-200';
+            resultDiv.textContent = d.message;
+        } else {
+            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
+            resultDiv.textContent = d.detail || 'Error starting scrape';
         }
-    }
-
-    resultDiv.classList.remove('hidden');
-    if (errors.length) {
+    } catch(err) {
+        resultDiv.classList.remove('hidden');
         resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
-        resultDiv.textContent = errors.join('\n');
-    } else {
-        resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-green-50 text-green-800 border border-green-200';
-        resultDiv.textContent = messages.join('\n');
+        resultDiv.textContent = 'Network error: ' + err.message;
     }
     btn.disabled = false;
     btn.textContent = 'Start Scraping';
