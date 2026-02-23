@@ -886,6 +886,9 @@ async function loadJobs() {
             const cancelBtn = (j.status === 'running' || j.status === 'pending')
                 ? `<button onclick="cancelJob('${j.id}')" class="text-red-600 hover:text-red-800 text-xs font-medium">Cancel</button>`
                 : '';
+            const downloadBtn = (j.total_leads > 0)
+                ? `<button onclick="downloadJobCSV('${j.id}')" class="text-br-600 hover:text-br-800 text-xs font-medium">CSV ↓</button>`
+                : '';
             return `<tr class="hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium">${esc(j.search_term)}</td>
                 <td class="px-4 py-3">${(j.country||'').toUpperCase()}</td>
@@ -902,7 +905,7 @@ async function loadJobs() {
                 <td class="px-4 py-3 text-gray-400">${j.total_duplicates || 0}</td>
                 <td class="px-4 py-3 text-gray-400">${j.total_api_calls || 0}</td>
                 <td class="px-4 py-3 text-xs text-gray-400">${created}</td>
-                <td class="px-4 py-3">${cancelBtn}</td>
+                <td class="px-4 py-3 space-x-2">${downloadBtn} ${cancelBtn}</td>
             </tr>`;
         }).join('');
 
@@ -1002,6 +1005,14 @@ function nextLeadPage() { if ((currentLeadPage + 1) * LEADS_PER_PAGE < totalLead
 
 function downloadCSV() {
     const p = buildLeadParams();
+    p.set('format', 'csv');
+    p.set('limit', '50000');
+    window.open('/leads?' + p.toString(), '_blank');
+}
+
+function downloadJobCSV(jobId) {
+    const p = new URLSearchParams();
+    p.set('job_id', jobId);
     p.set('format', 'csv');
     p.set('limit', '50000');
     window.open('/leads?' + p.toString(), '_blank');
