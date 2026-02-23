@@ -304,11 +304,13 @@ def update_job(job_id: str, **fields) -> None:
 
 
 def delete_job(job_id: str) -> bool:
+    """Delete a job. Detaches leads (sets job_id=NULL) rather than deleting
+    them, because upsert may have re-stamped leads from earlier jobs."""
     if not _client:
         return False
     try:
-        # Delete associated leads first (FK constraint)
-        _client.table(LEADS_TABLE).delete().eq("job_id", job_id).execute()
+        # Detach leads — don't delete them, they may belong to other jobs logically
+        _client.table(LEADS_TABLE).update({"job_id": None}).eq("job_id", job_id).execute()
         _client.table(JOBS_TABLE).delete().eq("id", job_id).execute()
         return True
     except Exception as exc:
