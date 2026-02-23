@@ -38,6 +38,7 @@
         .badge-failed { background: #fee2e2; color: #991b1b; }
         .badge-cancelled { background: #e5e7eb; color: #374151; }
         .badge-cancelling { background: #fde68a; color: #92400e; }
+        .badge-budget_reached { background: #e0e7ff; color: #3730a3; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -287,12 +288,24 @@
                         <option value="max" data-dach="Max (all locations)" data-ww="Max (cities 1k+)">Max (all locations)</option>
                     </select>
                 </div>
+                <!-- Credit Limit -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Credit Limit</label>
+                    <div class="flex items-center space-x-3">
+                        <input type="number" id="credit_limit" placeholder="No limit (max)" min="10" step="10" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                        <span class="text-xs text-gray-400">Leave empty = unlimited</span>
+                    </div>
+                </div>
                 <!-- Email enrichment -->
                 <div class="flex items-center">
                     <input type="checkbox" id="enrich_emails" class="mr-2 text-br-600 focus:ring-br-500 rounded">
                     <label for="enrich_emails" class="text-sm text-gray-700">Enrich emails (crawls websites — slower)</label>
                 </div>
-                <!-- Submit -->
+                <!-- Actions -->
+                <div class="flex space-x-2">
+                    <button type="button" onclick="estimateScrape()" class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-200 transition border border-gray-300 text-sm">Estimate Credits</button>
+                    <button type="button" onclick="previewScrape()" class="flex-1 bg-br-100 text-br-700 py-2.5 rounded-lg font-medium hover:bg-br-200 transition border border-br-300 text-sm">Preview (3 credits)</button>
+                </div>
                 <button type="submit" class="w-full bg-br-600 text-white py-2.5 rounded-lg font-medium hover:bg-br-700 transition shadow-sm">Start Scraping</button>
                 <div id="scrape-result" class="hidden mt-3 p-3 rounded-lg text-sm"></div>
             </form>
@@ -353,10 +366,13 @@
                     <label class="block text-xs text-gray-500 mb-1">Search Term</label>
                     <input type="text" id="f-search" placeholder="Filter..." class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm w-32 focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                 </div>
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-3 flex-wrap gap-y-1">
                     <label class="flex items-center text-sm"><input type="checkbox" id="f-email" class="mr-1 text-br-600 focus:ring-br-500 rounded"> Has Email</label>
                     <label class="flex items-center text-sm"><input type="checkbox" id="f-phone" class="mr-1 text-br-600 focus:ring-br-500 rounded"> Has Phone</label>
                     <label class="flex items-center text-sm"><input type="checkbox" id="f-website" class="mr-1 text-br-600 focus:ring-br-500 rounded"> Has Website</label>
+                    <label class="flex items-center text-sm"><input type="checkbox" id="f-no-chains" class="mr-1 text-br-600 focus:ring-br-500 rounded"> No Chains</label>
+                    <label class="flex items-center text-sm"><input type="checkbox" id="f-high-conf" class="mr-1 text-br-600 focus:ring-br-500 rounded"> High Confidence</label>
+                    <input type="number" id="f-min-reviews" placeholder="Min reviews" min="0" class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm w-28 focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                 </div>
                 <button onclick="currentLeadPage=0;loadLeads()" class="bg-br-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-br-700 transition shadow-sm">Apply</button>
             </div>
@@ -741,31 +757,23 @@ function toggleTargeting() {
     document.getElementById('radius-group').classList.toggle('hidden', mode !== 'radius');
 }
 
-document.getElementById('scrape-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = e.target.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.textContent = 'Starting...';
-    const resultDiv = document.getElementById('scrape-result');
-    resultDiv.classList.add('hidden');
-
+function buildScrapeBody() {
     const mode = document.querySelector('input[name="search_mode"]:checked').value;
     const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
     const isWW = regionMode === 'worldwide';
+    const creditLimit = document.getElementById('credit_limit').value;
     const body = {
         country: isWW ? document.getElementById('ww-country').value : document.getElementById('country').value,
         targeting_mode: isWW ? 'country' : document.getElementById('targeting_mode').value,
         scrape_mode: document.getElementById('scrape_mode').value,
         enrich_emails: document.getElementById('enrich_emails').checked,
+        credit_limit: creditLimit ? parseInt(creditLimit) : null,
     };
-
     if (mode === 'term') {
         body.search_term = document.getElementById('search_term').value.trim();
-        if (!body.search_term) { alert('Enter a search term'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
     } else {
         body.category_key = document.getElementById('category_key').value;
     }
-
     if (body.targeting_mode === 'regions') {
         body.regions = [...document.querySelectorAll('input[name="region"]:checked')].map(c => c.value);
     }
@@ -774,6 +782,73 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
         body.center_lng = parseFloat(document.getElementById('center_lng').value);
         body.radius_km = parseFloat(document.getElementById('radius_km').value);
     }
+    return body;
+}
+
+async function estimateScrape() {
+    const body = buildScrapeBody();
+    if (!body.search_term && !body.category_key) { alert('Enter a search term or select a category'); return; }
+    const resultDiv = document.getElementById('scrape-result');
+    resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-blue-50 text-blue-800 border border-blue-200';
+    resultDiv.textContent = 'Estimating...';
+    resultDiv.classList.remove('hidden');
+    try {
+        const r = await fetch('/scrape/estimate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (r.ok) {
+            resultDiv.textContent = `Estimate: ~${d.estimated_credits.toLocaleString()} credits (${d.estimated_api_calls.toLocaleString()} API calls, ${d.cities} cities, ${d.total_grid_points} grid points, ${d.search_queries} queries)`;
+        } else {
+            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
+            resultDiv.textContent = d.detail || 'Estimation error';
+        }
+    } catch(e) {
+        resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
+        resultDiv.textContent = 'Network error: ' + e.message;
+    }
+}
+
+async function previewScrape() {
+    const body = buildScrapeBody();
+    if (!body.search_term && !body.category_key) { alert('Enter a search term or select a category'); return; }
+    const resultDiv = document.getElementById('scrape-result');
+    resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-blue-50 text-blue-800 border border-blue-200';
+    resultDiv.textContent = 'Running preview (1 API call)...';
+    resultDiv.classList.remove('hidden');
+    try {
+        const r = await fetch('/scrape/preview', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (r.ok) {
+            const lines = [`Preview: "${d.query}" — ${d.match_rate} relevant results`];
+            if (d.results && d.results.length) {
+                lines.push('');
+                d.results.slice(0, 10).forEach((r, i) => {
+                    const rel = r.relevance >= 0.8 ? '✓' : r.relevance >= 0.5 ? '~' : '✗';
+                    lines.push(`${rel} ${r.name} [${r.category || 'no category'}] — ${r.rating || '-'}★ (${r.review_count || 0} reviews)${r.website ? '' : ' ⚠ no website'}`);
+                });
+                if (d.results.length > 10) lines.push(`... and ${d.results.length - 10} more`);
+            }
+            resultDiv.innerHTML = '<pre class="whitespace-pre-wrap font-mono text-xs">' + esc(lines.join('\n')) + '</pre>';
+            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-blue-50 text-blue-800 border border-blue-200';
+        } else {
+            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
+            resultDiv.textContent = d.detail || 'Preview error';
+        }
+    } catch(e) {
+        resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
+        resultDiv.textContent = 'Network error: ' + e.message;
+    }
+}
+
+document.getElementById('scrape-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    const resultDiv = document.getElementById('scrape-result');
+    resultDiv.classList.add('hidden');
+
+    const body = buildScrapeBody();
+    if (!body.search_term && !body.category_key) { alert('Enter a search term or select a category'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
 
     try {
         const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -867,6 +942,9 @@ function buildLeadParams() {
     const hasEmail = document.getElementById('f-email').checked;
     const hasPhone = document.getElementById('f-phone').checked;
     const hasWebsite = document.getElementById('f-website').checked;
+    const noChains = document.getElementById('f-no-chains').checked;
+    const highConf = document.getElementById('f-high-conf').checked;
+    const minReviews = document.getElementById('f-min-reviews').value;
     if (countryCode) p.set('country', countryCode);
     else if (country) p.set('country', country);
     if (region) p.set('region', region);
@@ -874,6 +952,9 @@ function buildLeadParams() {
     if (hasEmail) p.set('has_email', 'true');
     if (hasPhone) p.set('has_phone', 'true');
     if (hasWebsite) p.set('has_website', 'true');
+    if (noChains) p.set('exclude_chains', 'true');
+    if (highConf) p.set('exclude_low_confidence', 'true');
+    if (minReviews) p.set('min_reviews', minReviews);
     return p;
 }
 
