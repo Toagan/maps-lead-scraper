@@ -5,7 +5,7 @@ REGIONS = {
     "W":  {"name": "Wien", "bounds": (48.12, 48.32, 16.18, 16.58)},
     "NÖ": {"name": "Niederösterreich", "bounds": (47.40, 48.97, 14.45, 17.07)},
     "OÖ": {"name": "Oberösterreich", "bounds": (47.46, 48.77, 13.14, 15.05)},
-    "S":  {"name": "Salzburg", "bounds": (46.95, 47.85, 12.30, 13.76)},
+    "S":  {"name": "Salzburg", "bounds": (46.95, 48.00, 12.30, 13.76)},
     "T":  {"name": "Tirol", "bounds": (46.65, 47.75, 10.10, 12.97)},
     "V":  {"name": "Vorarlberg", "bounds": (46.84, 47.59, 9.53, 10.24)},
     "K":  {"name": "Kärnten", "bounds": (46.37, 47.13, 12.65, 15.05)},

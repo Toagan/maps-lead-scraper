@@ -17,7 +17,7 @@ REGIONS = {
     "SL": {"name": "Saarland", "bounds": (49.11, 49.64, 6.36, 7.41)},
     "SN": {"name": "Saxony (Sachsen)", "bounds": (50.17, 51.69, 11.87, 15.04)},
     "ST": {"name": "Saxony-Anhalt", "bounds": (50.94, 53.04, 10.56, 12.10)},
-    "SH": {"name": "Schleswig-Holstein", "bounds": (53.36, 55.06, 8.31, 11.31)},
+    "SH": {"name": "Schleswig-Holstein", "bounds": (53.36, 55.06, 8.28, 11.31)},
     "TH": {"name": "Thuringia (Thüringen)", "bounds": (50.20, 51.65, 9.87, 12.65)},
 }
 
