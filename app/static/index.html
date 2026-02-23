@@ -233,12 +233,12 @@
                 </div>
                 <!-- Country (DACH) -->
                 <div id="dach-country-group">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
-                    <select id="country" onchange="loadRegions()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
-                        <option value="de">Germany</option>
-                        <option value="at">Austria</option>
-                        <option value="ch">Switzerland</option>
-                    </select>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Countries</label>
+                    <div class="flex items-center space-x-4">
+                        <label class="flex items-center text-sm text-gray-700"><input type="checkbox" name="dach_country" value="de" checked onchange="loadRegions()" class="mr-1.5 text-br-600 focus:ring-br-500 rounded"> Germany</label>
+                        <label class="flex items-center text-sm text-gray-700"><input type="checkbox" name="dach_country" value="at" onchange="loadRegions()" class="mr-1.5 text-br-600 focus:ring-br-500 rounded"> Austria</label>
+                        <label class="flex items-center text-sm text-gray-700"><input type="checkbox" name="dach_country" value="ch" onchange="loadRegions()" class="mr-1.5 text-br-600 focus:ring-br-500 rounded"> Switzerland</label>
+                    </div>
                 </div>
                 <!-- Country (Worldwide) -->
                 <div id="ww-country-group" class="hidden">
@@ -703,10 +703,19 @@ async function loadRegions() {
     } catch(e) {
         console.error('Regions error:', e);
     }
+    // Multi-country: force "Entire Country" targeting, hide targeting options
+    const multiCountry = getSelectedDachCountries().length > 1;
+    if (multiCountry) {
+        document.getElementById('targeting_mode').value = 'country';
+        document.getElementById('regions-group').classList.add('hidden');
+        document.getElementById('radius-group').classList.add('hidden');
+    }
+    document.getElementById('targeting-group').classList.toggle('hidden', multiCountry);
 }
 
 function renderRegionCheckboxes() {
-    const country = document.getElementById('country').value;
+    const countries = getSelectedDachCountries();
+    const country = countries[0] || 'de';
     const cdata = regionsData.find(c => c.code === country);
     const container = document.getElementById('regions-list');
     if (!cdata || !cdata.regions.length) { container.innerHTML = '<span class="text-gray-400">No regions</span>'; return; }
@@ -724,9 +733,10 @@ function toggleSearchMode() {
 function toggleRegionMode() {
     const mode = document.querySelector('input[name="region_mode"]:checked').value;
     const isWW = mode === 'worldwide';
+    const multiCountry = !isWW && getSelectedDachCountries().length > 1;
     document.getElementById('dach-country-group').classList.toggle('hidden', isWW);
     document.getElementById('ww-country-group').classList.toggle('hidden', !isWW);
-    document.getElementById('targeting-group').classList.toggle('hidden', isWW);
+    document.getElementById('targeting-group').classList.toggle('hidden', isWW || multiCountry);
     document.getElementById('regions-group').classList.add('hidden');
     document.getElementById('radius-group').classList.add('hidden');
     // Update scrape mode labels
@@ -762,14 +772,19 @@ function toggleTargeting() {
     document.getElementById('radius-group').classList.toggle('hidden', mode !== 'radius');
 }
 
-function buildScrapeBody() {
+function getSelectedDachCountries() {
+    return [...document.querySelectorAll('input[name="dach_country"]:checked')].map(c => c.value);
+}
+
+function buildScrapeBody(countryOverride) {
     const mode = document.querySelector('input[name="search_mode"]:checked').value;
     const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
     const isWW = regionMode === 'worldwide';
     const creditLimit = document.getElementById('credit_limit').value;
     const jobName = document.getElementById('job_name').value.trim();
+    const country = countryOverride || (isWW ? document.getElementById('ww-country').value : getSelectedDachCountries()[0]);
     const body = {
-        country: isWW ? document.getElementById('ww-country').value : document.getElementById('country').value,
+        country: country,
         targeting_mode: isWW ? 'country' : document.getElementById('targeting_mode').value,
         scrape_mode: document.getElementById('scrape_mode').value,
         enrich_emails: document.getElementById('enrich_emails').checked,
@@ -781,10 +796,10 @@ function buildScrapeBody() {
     } else {
         body.category_key = document.getElementById('category_key').value;
     }
-    if (body.targeting_mode === 'regions') {
+    if (!isWW && body.targeting_mode === 'regions') {
         body.regions = [...document.querySelectorAll('input[name="region"]:checked')].map(c => c.value);
     }
-    if (body.targeting_mode === 'radius') {
+    if (!isWW && body.targeting_mode === 'radius') {
         body.center_lat = parseFloat(document.getElementById('center_lat').value);
         body.center_lng = parseFloat(document.getElementById('center_lng').value);
         body.radius_km = parseFloat(document.getElementById('radius_km').value);
@@ -854,25 +869,39 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
     const resultDiv = document.getElementById('scrape-result');
     resultDiv.classList.add('hidden');
 
-    const body = buildScrapeBody();
-    if (!body.search_term && !body.category_key) { alert('Enter a search term or select a category'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
+    const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
+    const isWW = regionMode === 'worldwide';
+    const countries = isWW ? [document.getElementById('ww-country').value] : getSelectedDachCountries();
 
-    try {
-        const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-        const d = await r.json();
-        if (r.ok) {
-            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-green-50 text-green-800 border border-green-200';
-            resultDiv.textContent = d.message;
-            resultDiv.classList.remove('hidden');
-        } else {
-            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
-            resultDiv.textContent = d.detail || 'Error starting scrape';
-            resultDiv.classList.remove('hidden');
+    if (!countries.length) { alert('Select at least one country'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
+
+    const testBody = buildScrapeBody(countries[0]);
+    if (!testBody.search_term && !testBody.category_key) { alert('Enter a search term or select a category'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
+
+    const messages = [];
+    const errors = [];
+    for (const c of countries) {
+        const body = buildScrapeBody(c);
+        try {
+            const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+            const d = await r.json();
+            if (r.ok) {
+                messages.push(d.message);
+            } else {
+                errors.push(`${c.toUpperCase()}: ${d.detail || 'Error'}`);
+            }
+        } catch(err) {
+            errors.push(`${c.toUpperCase()}: ${err.message}`);
         }
-    } catch(e) {
+    }
+
+    resultDiv.classList.remove('hidden');
+    if (errors.length) {
         resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
-        resultDiv.textContent = 'Network error: ' + e.message;
-        resultDiv.classList.remove('hidden');
+        resultDiv.textContent = errors.join('\n');
+    } else {
+        resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-green-50 text-green-800 border border-green-200';
+        resultDiv.textContent = messages.join('\n');
     }
     btn.disabled = false;
     btn.textContent = 'Start Scraping';
