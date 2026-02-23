@@ -26,3 +26,12 @@ async def cancel(job_id: str):
         db.update_job(job_id, status="cancelling")
         return {"status": "cancelling", "job_id": job_id}
     raise HTTPException(status_code=404, detail="Job not running")
+
+
+@router.delete("/jobs/{job_id}")
+async def delete(job_id: str):
+    if is_job_running(job_id):
+        raise HTTPException(status_code=400, detail="Cannot delete a running job — cancel it first")
+    if not db.delete_job(job_id):
+        raise HTTPException(status_code=500, detail="Failed to delete job")
+    return {"deleted": job_id}

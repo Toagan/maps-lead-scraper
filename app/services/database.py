@@ -303,6 +303,19 @@ def update_job(job_id: str, **fields) -> None:
         logger.error("Error updating job %s: %s", job_id, exc)
 
 
+def delete_job(job_id: str) -> bool:
+    if not _client:
+        return False
+    try:
+        # Delete associated leads first (FK constraint)
+        _client.table(LEADS_TABLE).delete().eq("job_id", job_id).execute()
+        _client.table(JOBS_TABLE).delete().eq("id", job_id).execute()
+        return True
+    except Exception as exc:
+        logger.error("Error deleting job %s: %s", job_id, exc)
+        return False
+
+
 def get_job(job_id: str) -> dict | None:
     if not _client:
         return None
