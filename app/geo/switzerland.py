@@ -30,7 +30,17 @@ REGIONS = {
     "JU": {"name": "Jura", "bounds": (47.15, 47.50, 6.85, 7.35)},
 }
 
-BORDER_OVERRIDES = []
+# (lat, lon, canton_code, tolerance)
+# Fixes for SG cities that fall inside AR/AI bounding boxes
+BORDER_OVERRIDES = [
+    (47.4239, 9.3748, "SG", 0.02),   # Sankt Gallen
+    (47.4155, 9.2548, "SG", 0.02),   # Gossau
+    (47.4611, 9.3860, "SG", 0.02),   # Wittenbach
+    (47.3209, 9.5681, "SG", 0.02),   # Oberriet
+    (47.3777, 9.5475, "SG", 0.02),   # Altstätten
+    (47.4668, 9.5664, "SG", 0.02),   # Thal
+    (47.3649, 7.3445, "JU", 0.02),   # Delémont
+]
 
 COUNTRY_CODE = "ch"
 SERPER_GL = "ch"

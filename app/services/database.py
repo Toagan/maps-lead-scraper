@@ -89,7 +89,8 @@ def update_lead_email(place_id: str, email: str, source: str) -> bool:
 
 def _build_leads_query(
     country=None, region=None, category=None,
-    has_email=None, has_phone=None, search_term=None,
+    has_email=None, has_phone=None, has_website=None,
+    search_term=None,
 ):
     q = _client.table(LEADS_TABLE).select("*", count="exact")
     if country:
@@ -102,6 +103,8 @@ def _build_leads_query(
         q = q.neq("email", None).neq("email", "")
     if has_phone:
         q = q.neq("phone", None).neq("phone", "")
+    if has_website:
+        q = q.neq("website", None).neq("website", "")
     if search_term:
         q = q.ilike("search_term", f"%{search_term}%")
     return q
@@ -109,7 +112,8 @@ def _build_leads_query(
 
 def query_leads(
     country=None, region=None, category=None,
-    has_email=None, has_phone=None, search_term=None,
+    has_email=None, has_phone=None, has_website=None,
+    search_term=None,
     limit: int = 100, offset: int = 0,
 ) -> tuple:
     if not _client:
@@ -121,7 +125,7 @@ def query_leads(
         fetched = 0
         total = 0
         while fetched < limit:
-            q = _build_leads_query(country, region, category, has_email, has_phone, search_term)
+            q = _build_leads_query(country, region, category, has_email, has_phone, has_website, search_term)
             q = q.range(offset + fetched, offset + fetched + page_size - 1)
             result = q.execute()
             if total == 0:
@@ -151,6 +155,9 @@ def get_stats() -> dict:
         with_phone_q = _client.table(LEADS_TABLE).select("*", count="exact").neq("phone", None).neq("phone", "").execute()
         with_phone = with_phone_q.count or 0
 
+        with_website_q = _client.table(LEADS_TABLE).select("*", count="exact").neq("website", None).neq("website", "").execute()
+        with_website = with_website_q.count or 0
+
         # Per-country counts — discover countries from jobs table
         by_country = {}
         job_countries = set()
@@ -169,6 +176,7 @@ def get_stats() -> dict:
             "total_leads": total,
             "with_email": with_email,
             "with_phone": with_phone,
+            "with_website": with_website,
             "by_country": by_country,
         }
     except Exception as exc:

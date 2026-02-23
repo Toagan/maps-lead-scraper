@@ -55,9 +55,19 @@ def load_cities(country_code: str) -> list[City]:
     return cities
 
 
-def load_plz_grid() -> list[City]:
-    """Load German PLZ grid as pseudo-cities."""
-    path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "plz_germany.csv")
+PLZ_FILES = {
+    "de": "data/plz_germany.csv",
+    "at": "data/plz_austria.csv",
+    "ch": "data/plz_switzerland.csv",
+}
+
+
+def load_plz_grid(country_code: str = "de") -> list[City]:
+    """Load PLZ grid as pseudo-cities for a given country."""
+    filename = PLZ_FILES.get(country_code)
+    if not filename:
+        return []
+    path = os.path.join(os.path.dirname(__file__), "..", "..", filename)
     path = os.path.normpath(path)
     entries: list[City] = []
     with open(path, "r", encoding="utf-8") as f:
@@ -99,9 +109,9 @@ def resolve_cities(
 
     min_pop = MIN_POP.get(scrape_mode, 10_000)
 
-    # Max mode for Germany uses PLZ grid
-    if scrape_mode == "max" and country == "de":
-        all_locations = load_plz_grid()
+    # Max mode uses PLZ grid for countries that have one
+    if scrape_mode == "max" and country in PLZ_FILES:
+        all_locations = load_plz_grid(country)
     else:
         all_locations = load_cities(country)
 
@@ -159,7 +169,7 @@ def get_city_scrape_config(population: int) -> tuple[int, int]:
     """
     if population >= 100_000:
         # Grid cities: multiple points compensate for shallow pagination
-        return (16, 2)
+        return (16, 3)
     elif population >= 20_000:
         return (17, 3)
     else:
@@ -199,7 +209,10 @@ def generate_grid_points(city: City, spacing_km: float = 2.0) -> list[GridPoint]
     """
     pop = city.population
 
-    if pop >= 500_000:
+    if pop >= 1_000_000:
+        # Megacity (Vienna): 10km radius grid → roughly 8×8 = ~80 points
+        radius_km = 10.0
+    elif pop >= 500_000:
         # Large city: ~6km radius grid → roughly 5×5 = ~25 points
         radius_km = 6.0
     elif pop >= 200_000:

@@ -66,7 +66,7 @@
         <!-- ==================== DASHBOARD ==================== -->
         <div id="view-dashboard">
             <h2 class="text-xl font-semibold text-br-950 mb-4">Dashboard</h2>
-            <div id="stats-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div id="stats-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
                     <div class="flex items-center justify-between">
                         <p class="text-sm text-gray-500">Total Leads</p>
@@ -93,6 +93,15 @@
                         </div>
                     </div>
                     <p class="text-2xl font-bold mt-2 text-br-950" id="stat-phone">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <div class="flex items-center justify-between">
+                        <p class="text-sm text-gray-500">With Website</p>
+                        <div class="w-8 h-8 bg-br-50 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-br-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                        </div>
+                    </div>
+                    <p class="text-2xl font-bold mt-2 text-br-950" id="stat-website">-</p>
                 </div>
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
                     <div class="flex items-center justify-between">
@@ -347,6 +356,7 @@
                 <div class="flex items-center space-x-3">
                     <label class="flex items-center text-sm"><input type="checkbox" id="f-email" class="mr-1 text-br-600 focus:ring-br-500 rounded"> Has Email</label>
                     <label class="flex items-center text-sm"><input type="checkbox" id="f-phone" class="mr-1 text-br-600 focus:ring-br-500 rounded"> Has Phone</label>
+                    <label class="flex items-center text-sm"><input type="checkbox" id="f-website" class="mr-1 text-br-600 focus:ring-br-500 rounded"> Has Website</label>
                 </div>
                 <button onclick="currentLeadPage=0;loadLeads()" class="bg-br-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-br-700 transition shadow-sm">Apply</button>
             </div>
@@ -412,6 +422,7 @@ async function loadStats() {
         document.getElementById('stat-total').textContent = (d.total_leads || 0).toLocaleString();
         document.getElementById('stat-email').textContent = (d.with_email || 0).toLocaleString();
         document.getElementById('stat-phone').textContent = (d.with_phone || 0).toLocaleString();
+        document.getElementById('stat-website').textContent = (d.with_website || 0).toLocaleString();
         const bc = d.by_country || {};
         document.getElementById('stat-country').innerHTML =
             Object.entries(bc).map(([k,v]) => `<span class="font-semibold">${k.toUpperCase()}</span>: ${v.toLocaleString()}`).join(' &middot; ') || '-';
@@ -855,12 +866,14 @@ function buildLeadParams() {
     const search = document.getElementById('f-search').value.trim();
     const hasEmail = document.getElementById('f-email').checked;
     const hasPhone = document.getElementById('f-phone').checked;
+    const hasWebsite = document.getElementById('f-website').checked;
     if (countryCode) p.set('country', countryCode);
     else if (country) p.set('country', country);
     if (region) p.set('region', region);
     if (search) p.set('search_term', search);
     if (hasEmail) p.set('has_email', 'true');
     if (hasPhone) p.set('has_phone', 'true');
+    if (hasWebsite) p.set('has_website', 'true');
     return p;
 }
 
