@@ -84,13 +84,18 @@ async def suggest_terms(req: SuggestRequest):
             messages=[
                 {
                     "role": "system",
-                    "content": "You generate Google Maps search terms for lead generation.",
+                    "content": (
+                        "You generate Google Maps search terms for lead generation. "
+                        "Return ONLY a JSON array of strings. No explanation, no markdown."
+                    ),
                 },
                 {
                     "role": "user",
                     "content": (
-                        f"Generate 12 Google Maps search terms to find {req.niche} businesses. "
-                        f"Language: {req.language}. Return a JSON array of strings only."
+                        f"Generate 12 Google Maps search terms to find businesses in this exact niche: \"{req.niche}\"\n"
+                        f"The terms MUST be relevant to \"{req.niche}\" — do NOT include terms from other industries.\n"
+                        f"Language for the search terms: {req.language}.\n"
+                        f"Return a JSON array of 12 strings."
                     ),
                 },
             ],
