@@ -96,7 +96,7 @@
                     <h3 class="text-base font-semibold text-br-950">What do you want to find?</h3>
                     <p class="text-sm text-gray-500">Define the Google Maps search query to find businesses.</p>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-3 gap-3">
                     <label id="card-term" class="relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-br-500 bg-br-50">
                         <input type="radio" name="search_mode" value="term" checked onchange="toggleSearchMode()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500">
                         <div>
@@ -111,12 +111,20 @@
                             <div class="text-xs text-gray-500 mt-0.5">Multiple related terms for broader coverage</div>
                         </div>
                     </label>
+                    <label id="card-google-cat" class="relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-gray-200 hover:border-gray-300">
+                        <input type="radio" name="search_mode" value="google_cat" onchange="toggleSearchMode()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500">
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">Google Category</div>
+                            <div class="text-xs text-gray-500 mt-0.5">Browse ~4000 official Google Maps categories</div>
+                        </div>
+                    </label>
                 </div>
                 <div class="mt-1">
                     <button type="button" onclick="document.getElementById('search-mode-help').classList.toggle('hidden');this.querySelector('span').textContent=document.getElementById('search-mode-help').classList.contains('hidden')?'\u25b8':'\u25be'" class="text-xs text-br-600 hover:text-br-700 font-medium">When to use which? <span>&#9656;</span></button>
                     <div id="search-mode-help" class="hidden mt-2 bg-br-50 border border-br-200 rounded-lg p-3 text-xs text-gray-600 space-y-2">
                         <div><span class="font-semibold text-gray-800">Single Term</span> — Best when you know exactly what to search. Use for quick tests or a specific keyword (e.g. "Zahnarzt" finds dentists). Fast and cheap, but may miss businesses that use a different name for the same service.</div>
                         <div><span class="font-semibold text-gray-800">Category Bundle</span> — Best for thorough coverage. A bundle contains 10-40 related terms that catch businesses using different names for the same thing. E.g. a "Dentists" bundle searches "Zahnarzt", "Zahnklinik", "Kieferorthopäde", etc. Finds 3-5x more businesses than a single term, but uses more credits.</div>
+                        <div><span class="font-semibold text-gray-800">Google Category</span> — Browse all ~4000 official Google Business Profile categories. Useful when you're not sure what to search for — pick the exact category Google uses. Works like a single term search.</div>
                     </div>
                 </div>
                 <!-- Search Term -->
@@ -174,6 +182,17 @@
                         </div>
                     </div>
                     <!-- ChatGPT Prompt Generator is now a modal (see #prompt-modal below) -->
+                </div>
+                <!-- Google Category Browser -->
+                <div id="google-cat-group" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Google Category</label>
+                    <input type="text" id="google-cat-search" placeholder="Type to filter, e.g. dentist, plumber, restaurant..." oninput="filterGoogleCategories()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                    <div id="google-cat-selected" class="hidden mt-2 flex items-center justify-between bg-br-50 border border-br-200 rounded-lg px-3 py-2">
+                        <span class="text-sm font-medium text-br-800" id="google-cat-selected-text"></span>
+                        <button type="button" onclick="clearGoogleCatSelection()" class="text-br-500 hover:text-br-700 text-sm font-bold">&times;</button>
+                    </div>
+                    <div id="google-cat-list" class="mt-2 border border-gray-200 rounded-lg max-h-60 overflow-y-auto hidden"></div>
+                    <p class="text-xs text-gray-400 mt-1">Official Google Business Profile categories. Select one to use as search term.</p>
                 </div>
                 </div><!-- end wizard-step-1 -->
                 <!-- Step 2: Where to search -->
@@ -513,6 +532,8 @@ function buildWizardSummary() {
     let searchText;
     if (mode === 'term') {
         searchText = esc(document.getElementById('search_term').value.trim()) || '<span class="text-gray-400">not set</span>';
+    } else if (mode === 'google_cat') {
+        searchText = selectedGoogleCat ? esc(selectedGoogleCat) : '<span class="text-gray-400">not set</span>';
     } else {
         const sel = document.getElementById('category_key');
         searchText = esc(sel.options[sel.selectedIndex]?.text || '-');
@@ -860,10 +881,66 @@ function toggleSearchMode() {
     const mode = document.querySelector('input[name="search_mode"]:checked').value;
     document.getElementById('search-term-group').classList.toggle('hidden', mode !== 'term');
     document.getElementById('category-group').classList.toggle('hidden', mode !== 'category');
+    document.getElementById('google-cat-group').classList.toggle('hidden', mode !== 'google_cat');
     const active = 'relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-br-500 bg-br-50';
     const inactive = 'relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-gray-200 hover:border-gray-300';
     document.getElementById('card-term').className = mode === 'term' ? active : inactive;
     document.getElementById('card-category').className = mode === 'category' ? active : inactive;
+    document.getElementById('card-google-cat').className = mode === 'google_cat' ? active : inactive;
+    if (mode === 'google_cat') loadGoogleCategories();
+}
+
+// ---- Google Category Browser ----
+let googleCategories = null;
+let selectedGoogleCat = '';
+
+async function loadGoogleCategories() {
+    if (googleCategories) return;
+    try {
+        const r = await fetch('/static/google_categories.json');
+        googleCategories = await r.json();
+        filterGoogleCategories();
+    } catch(e) {
+        console.error('Google categories error:', e);
+    }
+}
+
+function filterGoogleCategories() {
+    if (!googleCategories) return;
+    const query = document.getElementById('google-cat-search').value.trim().toLowerCase();
+    const list = document.getElementById('google-cat-list');
+    const matches = query
+        ? googleCategories.filter(c => c.toLowerCase().includes(query))
+        : googleCategories;
+    if (!query && !selectedGoogleCat) {
+        list.classList.add('hidden');
+        return;
+    }
+    list.classList.remove('hidden');
+    const display = matches.slice(0, 100);
+    list.innerHTML = display.map(c =>
+        `<div onclick="selectGoogleCat('${esc(c).replace(/'/g, "\\'")}')" class="px-3 py-1.5 text-sm cursor-pointer hover:bg-br-50 ${c === selectedGoogleCat ? 'bg-br-100 text-br-800 font-medium' : 'text-gray-700'}">${esc(c)}</div>`
+    ).join('');
+    if (matches.length > 100) {
+        list.innerHTML += `<div class="px-3 py-1.5 text-xs text-gray-400">...and ${matches.length - 100} more. Type to narrow down.</div>`;
+    }
+    if (matches.length === 0) {
+        list.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No matching categories</div>';
+    }
+}
+
+function selectGoogleCat(cat) {
+    selectedGoogleCat = cat;
+    document.getElementById('google-cat-selected-text').textContent = cat;
+    document.getElementById('google-cat-selected').classList.remove('hidden');
+    document.getElementById('google-cat-list').classList.add('hidden');
+    document.getElementById('google-cat-search').value = '';
+}
+
+function clearGoogleCatSelection() {
+    selectedGoogleCat = '';
+    document.getElementById('google-cat-selected').classList.add('hidden');
+    document.getElementById('google-cat-search').value = '';
 }
 
 function toggleRegionMode() {
@@ -949,6 +1026,8 @@ function buildScrapeBody() {
     }
     if (mode === 'term') {
         body.search_term = document.getElementById('search_term').value.trim();
+    } else if (mode === 'google_cat') {
+        body.search_term = selectedGoogleCat;
     } else {
         body.category_key = document.getElementById('category_key').value;
     }
