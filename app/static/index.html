@@ -33,15 +33,15 @@
         .tab-active { border-bottom: 2px solid #3b6bfa; color: #ffffff; }
         .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
         .badge-pending { background: #fef3c7; color: #92400e; }
-        .badge-running { background: #dbeafe; color: #1e40af; }
+        .badge-running { background: #dcfce7; color: #166534; }
         .badge-completed { background: #d1fae5; color: #065f46; }
         .badge-failed { background: #fee2e2; color: #991b1b; }
         .badge-cancelled { background: #e5e7eb; color: #374151; }
         .badge-cancelling { background: #fde68a; color: #92400e; }
         .badge-budget_reached { background: #e0e7ff; color: #3730a3; }
         @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
-        .pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #3b6bfa; margin-right: 6px; animation: pulse-dot 1.4s ease-in-out infinite; }
-        .job-row-active { border-left: 3px solid #3b6bfa; }
+        .pulse-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; margin-right: 6px; animation: pulse-dot 1.4s ease-in-out infinite; }
+        .job-row-active { border-left: 3px solid #22c55e; background: #f0fdf4; }
         .job-row-dim td { color: #9ca3af; }
         .bulk-toolbar { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 8px; }
         .bulk-toolbar.visible { display: flex; }
@@ -302,7 +302,7 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Credit Limit <span class="font-normal text-gray-400">(optional)</span></label>
                     <input type="number" id="credit_limit" placeholder="No limit" min="10" step="10" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
-                    <p class="text-xs text-gray-400 mt-1">Max API calls for this job. 1 credit = 1 Google Maps API call. Leave empty for no limit.</p>
+                    <p class="text-xs text-gray-400 mt-1">Max Serper credits for this job. Each Maps API call costs 3 credits. Leave empty for no limit.</p>
                 </div>
                 <div class="flex items-start p-3 border border-gray-200 rounded-lg">
                     <input type="checkbox" id="enrich_emails" onchange="toggleSerpDiscovery()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500 rounded">
@@ -1360,7 +1360,7 @@ async function loadJobs() {
                 ? `<input type="checkbox" class="job-select-cb text-br-600 focus:ring-br-500 rounded" data-job-id="${j.id}" onchange="toggleJobSelect('${j.id}')" ${selectedJobIds.has(j.id) ? 'checked' : ''}>`
                 : '';
             const statusDot = isActive ? '<span class="pulse-dot"></span>' : '';
-            const progressBarColor = isActive ? 'bg-br-500' : 'bg-gray-400';
+            const progressBarColor = isActive ? 'bg-green-500' : 'bg-gray-400';
             const rowClasses = [];
             if (isActive) rowClasses.push('job-row-active');
             if (isFinished && (j.total_leads || 0) === 0) rowClasses.push('job-row-dim');
@@ -1394,7 +1394,10 @@ async function loadJobs() {
                 </td>
                 <td class="px-4 py-3">${j.total_leads || 0}</td>
                 <td class="px-4 py-3 text-gray-400">${j.total_duplicates || 0}</td>
-                <td class="px-4 py-3 text-gray-400">${j.total_api_calls || 0}</td>
+                <td class="px-4 py-3 text-gray-400">${j.total_api_calls || 0}${(() => {
+                    const cl = j.credit_limit || (j.targeting_config && j.targeting_config.credit_limit);
+                    return cl ? `<span class="text-xs text-gray-300"> / ${cl.toLocaleString()}</span>` : '';
+                })()}</td>
                 <td class="px-4 py-3 text-xs text-gray-400" title="${j.created_at ? new Date(j.created_at).toLocaleString() : ''}">${created}</td>
                 <td class="px-4 py-3 space-x-2">${downloadBtn} ${cancelBtn} ${deleteBtn}</td>
             </tr>`;
@@ -1517,10 +1520,10 @@ function renderJobDetailMeta(j) {
 
     const cards = [
         { label: 'Status', value: `<span class="badge badge-${j.status}">${isActive ? '<span class="pulse-dot"></span>' : ''}${humanizeStatus(j.status)}</span>` },
-        { label: 'Progress', value: `<div class="w-full bg-gray-200 rounded-full h-2 mb-1"><div class="${isActive ? 'bg-br-500' : 'bg-gray-400'} h-2 rounded-full transition-all" style="width:${pct}%"></div></div><span class="text-xs text-gray-500">${pct}% &middot; ${j.processed_locations || 0}/${j.total_locations || 0}</span>${eta ? `<div class="text-xs text-br-500">${eta}</div>` : ''}` },
+        { label: 'Progress', value: `<div class="w-full bg-gray-200 rounded-full h-2 mb-1"><div class="${isActive ? 'bg-green-500' : 'bg-gray-400'} h-2 rounded-full transition-all" style="width:${pct}%"></div></div><span class="text-xs text-gray-500">${pct}% &middot; ${j.processed_locations || 0}/${j.total_locations || 0}</span>${eta ? `<div class="text-xs text-green-600">${eta}</div>` : ''}` },
         { label: 'Total Leads', value: `<span class="text-lg font-semibold">${(j.total_leads || 0).toLocaleString()}</span>` },
         { label: 'Duplicates', value: `<span class="text-lg font-semibold text-gray-400">${(j.total_duplicates || 0).toLocaleString()}</span>` },
-        { label: 'API Calls', value: `<span class="text-lg font-semibold">${(j.total_api_calls || 0).toLocaleString()}</span>` },
+        { label: 'API Calls', value: `<span class="text-lg font-semibold">${(j.total_api_calls || 0).toLocaleString()}</span>${(() => { const cl = j.credit_limit || (j.targeting_config && j.targeting_config.credit_limit); return cl ? `<span class="text-xs text-gray-400"> / ${cl.toLocaleString()} limit</span>` : ''; })()}` },
         { label: 'Emails Enriched', value: `<span class="text-lg font-semibold">${(j.emails_enriched || 0).toLocaleString()}</span>` },
         { label: 'SERP Enriched', value: `<span class="text-lg font-semibold">${(j.serp_enriched || 0).toLocaleString()}</span>` },
         { label: 'Duration', value: `<span class="text-sm font-medium">${durationText}</span>` },
@@ -1543,10 +1546,10 @@ function renderJobDetailConfig(j) {
         ['Search Term', esc(j.search_term || '-')],
         ['Country', (j.country || '-').toUpperCase()],
         ['Targeting Mode', esc(humanizeStatus(j.targeting_mode || 'country'))],
-        ['Coverage', esc(humanizeStatus(j.scrape_mode || '-'))],
+        ['Coverage', esc(humanizeStatus(tc.scrape_mode || j.scrape_mode || '-'))],
         ['Email Enrichment', j.enrich_emails ? 'Yes' : 'No'],
         ['SERP Discovery', j.serp_discovery ? 'Yes' : 'No'],
-        ['Credit Limit', j.credit_limit ? j.credit_limit.toLocaleString() : 'Unlimited'],
+        ['Credit Limit', (() => { const cl = j.credit_limit || (j.targeting_config && j.targeting_config.credit_limit); return cl ? cl.toLocaleString() : 'Unlimited'; })()],
         ['Created', j.created_at ? new Date(j.created_at).toLocaleString() : '-'],
         ['Finished', j.finished_at ? new Date(j.finished_at).toLocaleString() : '-'],
     ];
