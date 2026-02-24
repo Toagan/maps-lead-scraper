@@ -179,12 +179,15 @@ def get_city_scrape_config(population: int) -> tuple[int, int]:
     Uses the /maps endpoint which returns 20 results per page.  Google
     caps at ~120 results (6 pages) per query+location combo.
 
-    Grid cities (100k+) get multiple coordinate points, so 3 pages per
-    point is enough — the grid provides coverage, not deep pagination.
-    Single-point cities need deeper pagination (up to 6 pages) since
-    there's only one search origin.
+    Large grid cities (500k+) get 6 pages per point to avoid saturation
+    in dense urban areas.  Smaller grid cities (100k+) get 3 pages since
+    multiple grid points provide coverage.  Single-point cities also get
+    6 pages since there's only one search origin.
     """
-    if population >= 100_000:
+    if population >= 500_000:
+        # Large grid cities: deep pagination to avoid saturation in dense areas
+        return (16, 6)
+    elif population >= 100_000:
         # Grid cities: multiple points compensate for shallow pagination
         return (16, 3)
     elif population >= 20_000:

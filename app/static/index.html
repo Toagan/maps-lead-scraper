@@ -366,6 +366,55 @@
 
         <!-- Leads view removed - CSV downloads still work via job CSV buttons -->
 
+        <!-- ==================== JOB DETAIL ==================== -->
+        <div id="view-job-detail" class="hidden">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-3">
+                    <button onclick="showTab('jobs')" class="text-sm text-br-600 hover:text-br-700 font-medium">&larr; Back to Jobs</button>
+                    <h2 class="text-xl font-semibold text-br-950" id="jd-title">Job Detail</h2>
+                </div>
+                <div id="jd-actions" class="flex items-center space-x-2"></div>
+            </div>
+            <!-- Error banner -->
+            <div id="jd-error-banner" class="hidden mb-4 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200"></div>
+            <!-- Metadata cards -->
+            <div id="jd-meta" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
+            <!-- Config section -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+                <div class="px-4 py-3 border-b border-gray-200">
+                    <h3 class="text-sm font-semibold text-br-950">Configuration</h3>
+                </div>
+                <div id="jd-config" class="divide-y divide-gray-100"></div>
+            </div>
+            <!-- Leads table -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+                <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-br-950">Leads Preview</h3>
+                    <span id="jd-leads-count" class="text-xs text-gray-400"></span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-br-50 border-b border-gray-200">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">Name</th>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">Category</th>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">City</th>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">Phone</th>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">Email</th>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">Website</th>
+                                <th class="px-3 py-2 text-left font-medium text-br-900">Rating</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jd-leads-body" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+                <div id="jd-leads-empty" class="hidden p-6 text-center text-gray-400 text-sm">No leads yet</div>
+                <div id="jd-load-more-wrap" class="hidden p-3 text-center border-t border-gray-100">
+                    <button onclick="loadMoreJobLeads()" class="text-sm text-br-600 hover:text-br-700 font-medium">Load More</button>
+                </div>
+            </div>
+        </div>
+
     </main>
 
     <!-- ChatGPT Prompt Modal -->
@@ -578,11 +627,14 @@ function showTab(tab) {
     document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.add('hidden'));
     document.querySelectorAll('[id^="tab-"]').forEach(t => t.classList.remove('tab-active'));
     document.getElementById('view-' + tab).classList.remove('hidden');
-    document.getElementById('tab-' + tab).classList.add('tab-active');
+    // job-detail is a sub-view of jobs — highlight the Jobs nav button
+    const navTab = tab === 'job-detail' ? 'jobs' : tab;
+    document.getElementById('tab-' + navTab).classList.add('tab-active');
     currentTab = tab;
     if (tab === 'jobs') { loadJobs(); startJobPoll(); }
     if (tab === 'scrape') { loadCategories(); loadRegions(); showWizardStep(1); }
-    if (tab !== 'jobs') stopJobPoll();
+    if (tab !== 'jobs' && tab !== 'job-detail') stopJobPoll();
+    if (tab !== 'job-detail') stopJobDetailPoll();
 }
 
 // ---- Dashboard ----
@@ -1126,8 +1178,9 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
         const d = await r.json();
         resultDiv.classList.remove('hidden');
         if (r.ok) {
-            resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-green-50 text-green-800 border border-green-200';
-            resultDiv.textContent = d.message;
+            showWizardStep(1);
+            showTab('jobs');
+            return;
         } else {
             resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
             resultDiv.textContent = d.detail || 'Error starting scrape';
@@ -1275,7 +1328,7 @@ async function loadJobs() {
                     <ul class="hidden mt-1 text-xs text-gray-500 list-disc pl-4 max-h-40 overflow-y-auto">${termsList}</ul>
                 </div>`;
             }
-            return `<tr class="${rowClasses.join(' ')} hover:bg-gray-50">
+            return `<tr class="${rowClasses.join(' ')} hover:bg-gray-50 cursor-pointer" onclick="handleJobRowClick(event, '${j.id}')">
                 <td class="px-2 py-3 text-center">${checkbox}</td>
                 <td class="px-4 py-3">${searchCell}</td>
                 <td class="px-4 py-3">${(j.country||'').toUpperCase()}</td>
@@ -1341,6 +1394,228 @@ async function deleteJob(id) {
     } catch(e) {
         console.error('Delete error:', e);
     }
+}
+
+// ---- Job Detail ----
+let jobDetailId = null;
+let jobDetailPollTimer = null;
+let jobDetailLeadsOffset = 0;
+let jobDetailLeadsTotal = 0;
+
+function handleJobRowClick(e, id) {
+    // Ignore clicks on buttons, checkboxes, links, or their children
+    const tag = e.target.closest('button, a, input, label');
+    if (tag) return;
+    showJobDetail(id);
+}
+
+function showJobDetail(id) {
+    jobDetailId = id;
+    jobDetailLeadsOffset = 0;
+    jobDetailLeadsTotal = 0;
+    document.getElementById('jd-leads-body').innerHTML = '';
+    document.getElementById('jd-leads-empty').classList.add('hidden');
+    document.getElementById('jd-load-more-wrap').classList.add('hidden');
+    document.getElementById('jd-error-banner').classList.add('hidden');
+    stopJobPoll();
+    showTab('job-detail');
+    loadJobDetail(id);
+}
+
+async function loadJobDetail(id) {
+    try {
+        const r = await fetch('/jobs/' + id);
+        if (!r.ok) { showTab('jobs'); return; }
+        const j = await r.json();
+        document.getElementById('jd-title').textContent = j.job_name || j.search_term || 'Job Detail';
+        renderJobDetailMeta(j);
+        renderJobDetailConfig(j);
+        renderJobDetailActions(j);
+        // Error banner
+        const banner = document.getElementById('jd-error-banner');
+        if (j.error_message) {
+            banner.textContent = j.error_message;
+            banner.classList.remove('hidden');
+        } else {
+            banner.classList.add('hidden');
+        }
+        // Load leads on first load only
+        if (jobDetailLeadsOffset === 0 && document.getElementById('jd-leads-body').innerHTML === '') {
+            loadJobDetailLeads(id, false);
+        }
+        // Auto-refresh for running jobs
+        const isActive = ['running', 'pending', 'cancelling'].includes(j.status);
+        if (isActive) startJobDetailPoll();
+        else stopJobDetailPoll();
+    } catch(e) {
+        console.error('Job detail error:', e);
+    }
+}
+
+function renderJobDetailMeta(j) {
+    const isActive = ['running', 'pending', 'cancelling'].includes(j.status);
+    const isFinished = !isActive;
+    const pct = isFinished ? 100 : (j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0);
+    const eta = estimateETA(j);
+
+    let durationText = '-';
+    if (j.created_at && j.finished_at) {
+        durationText = formatDuration(new Date(j.finished_at).getTime() - new Date(j.created_at).getTime());
+    } else if (j.created_at && isActive) {
+        durationText = formatDuration(Date.now() - new Date(j.created_at).getTime()) + ' (running)';
+    }
+
+    const cards = [
+        { label: 'Status', value: `<span class="badge badge-${j.status}">${isActive ? '<span class="pulse-dot"></span>' : ''}${humanizeStatus(j.status)}</span>` },
+        { label: 'Progress', value: `<div class="w-full bg-gray-200 rounded-full h-2 mb-1"><div class="${isActive ? 'bg-br-500' : 'bg-gray-400'} h-2 rounded-full transition-all" style="width:${pct}%"></div></div><span class="text-xs text-gray-500">${pct}% &middot; ${j.processed_locations || 0}/${j.total_locations || 0}</span>${eta ? `<div class="text-xs text-br-500">${eta}</div>` : ''}` },
+        { label: 'Total Leads', value: `<span class="text-lg font-semibold">${(j.total_leads || 0).toLocaleString()}</span>` },
+        { label: 'Duplicates', value: `<span class="text-lg font-semibold text-gray-400">${(j.total_duplicates || 0).toLocaleString()}</span>` },
+        { label: 'API Calls', value: `<span class="text-lg font-semibold">${(j.total_api_calls || 0).toLocaleString()}</span>` },
+        { label: 'Emails Enriched', value: `<span class="text-lg font-semibold">${(j.emails_enriched || 0).toLocaleString()}</span>` },
+        { label: 'SERP Enriched', value: `<span class="text-lg font-semibold">${(j.serp_enriched || 0).toLocaleString()}</span>` },
+        { label: 'Duration', value: `<span class="text-sm font-medium">${durationText}</span>` },
+    ];
+
+    document.getElementById('jd-meta').innerHTML = cards.map(c =>
+        `<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <div class="text-xs text-gray-400 mb-1">${c.label}</div>
+            <div>${c.value}</div>
+        </div>`
+    ).join('');
+}
+
+function renderJobDetailConfig(j) {
+    const tc = j.targeting_config || {};
+    const queries = tc.search_queries || [];
+    const saturated = tc.saturated_grid_points || [];
+
+    const rows = [
+        ['Search Term', esc(j.search_term || '-')],
+        ['Country', (j.country || '-').toUpperCase()],
+        ['Targeting Mode', esc(humanizeStatus(j.targeting_mode || 'country'))],
+        ['Coverage', esc(humanizeStatus(j.scrape_mode || '-'))],
+        ['Email Enrichment', j.enrich_emails ? 'Yes' : 'No'],
+        ['SERP Discovery', j.serp_discovery ? 'Yes' : 'No'],
+        ['Credit Limit', j.credit_limit ? j.credit_limit.toLocaleString() : 'Unlimited'],
+        ['Created', j.created_at ? new Date(j.created_at).toLocaleString() : '-'],
+        ['Finished', j.finished_at ? new Date(j.finished_at).toLocaleString() : '-'],
+    ];
+
+    if (queries.length > 1) {
+        const list = queries.map(q => esc(q)).join(', ');
+        rows.push(['Search Queries (' + queries.length + ')', `<span class="text-xs">${list}</span>`]);
+    }
+    if (saturated.length > 0) {
+        rows.push(['Saturated Points', saturated.length.toLocaleString()]);
+    }
+
+    document.getElementById('jd-config').innerHTML = rows.map(([l, v]) =>
+        `<div class="flex justify-between px-4 py-2.5">
+            <span class="text-sm text-gray-500">${l}</span>
+            <span class="text-sm font-medium text-gray-900">${v}</span>
+        </div>`
+    ).join('');
+}
+
+function renderJobDetailActions(j) {
+    const isActive = ['running', 'pending', 'cancelling'].includes(j.status);
+    let html = '';
+    if (j.total_leads > 0) {
+        html += `<button onclick="downloadJobCSV('${j.id}', '${esc(j.search_query || j.search_term)}', '${esc(j.country || '')}')" class="px-3 py-1.5 bg-br-600 text-white rounded-lg text-sm font-medium hover:bg-br-700 transition">Download CSV</button>`;
+    }
+    if (j.status === 'running' || j.status === 'pending') {
+        html += `<button onclick="cancelJob('${j.id}');setTimeout(()=>loadJobDetail('${j.id}'),500)" class="px-3 py-1.5 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 transition">Cancel</button>`;
+    }
+    if (!isActive) {
+        html += `<button onclick="deleteJobFromDetail('${j.id}')" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition">Delete</button>`;
+    }
+    document.getElementById('jd-actions').innerHTML = html;
+}
+
+async function deleteJobFromDetail(id) {
+    if (!await showConfirm('Delete this job and all its leads? This cannot be undone.')) return;
+    try {
+        const r = await fetch('/jobs/' + id, { method: 'DELETE' });
+        if (r.ok) {
+            stopJobDetailPoll();
+            showTab('jobs');
+        } else {
+            const d = await r.json();
+            alert(d.detail || 'Failed to delete job');
+        }
+    } catch(e) {
+        console.error('Delete error:', e);
+    }
+}
+
+async function loadJobDetailLeads(id, append) {
+    try {
+        const p = new URLSearchParams();
+        p.set('job_id', id);
+        p.set('limit', '50');
+        p.set('offset', jobDetailLeadsOffset);
+        const r = await fetch('/leads?' + p.toString());
+        const d = await r.json();
+        jobDetailLeadsTotal = d.total || 0;
+        document.getElementById('jd-leads-count').textContent = jobDetailLeadsTotal > 0 ? jobDetailLeadsTotal.toLocaleString() + ' leads' : '';
+
+        const tbody = document.getElementById('jd-leads-body');
+        const empty = document.getElementById('jd-leads-empty');
+        const moreWrap = document.getElementById('jd-load-more-wrap');
+
+        if (!d.leads || !d.leads.length) {
+            if (!append) { tbody.innerHTML = ''; empty.classList.remove('hidden'); }
+            moreWrap.classList.add('hidden');
+            return;
+        }
+        empty.classList.add('hidden');
+
+        const rowsHtml = d.leads.map(l => {
+            const website = l.website ? `<a href="${esc(l.website)}" target="_blank" class="text-br-600 hover:text-br-700 hover:underline truncate block max-w-[200px]">${esc(shortUrl(l.website))}</a>` : '-';
+            const email = l.email ? `<a href="mailto:${esc(l.email)}" class="text-br-600 hover:text-br-700 hover:underline">${esc(l.email)}</a>` : '-';
+            const rating = l.rating ? `${l.rating} (${l.review_count || 0})` : '-';
+            return `<tr class="hover:bg-gray-50">
+                <td class="px-3 py-2 font-medium">${esc(l.name)}</td>
+                <td class="px-3 py-2 text-gray-500">${esc(l.category || '-')}</td>
+                <td class="px-3 py-2">${esc(l.city || '-')}</td>
+                <td class="px-3 py-2">${esc(l.phone || '-')}</td>
+                <td class="px-3 py-2">${email}</td>
+                <td class="px-3 py-2">${website}</td>
+                <td class="px-3 py-2">${rating}</td>
+            </tr>`;
+        }).join('');
+
+        if (append) {
+            tbody.insertAdjacentHTML('beforeend', rowsHtml);
+        } else {
+            tbody.innerHTML = rowsHtml;
+        }
+
+        // Show/hide load more
+        const loaded = jobDetailLeadsOffset + d.leads.length;
+        moreWrap.classList.toggle('hidden', loaded >= jobDetailLeadsTotal);
+    } catch(e) {
+        console.error('Job detail leads error:', e);
+    }
+}
+
+function loadMoreJobLeads() {
+    jobDetailLeadsOffset += 50;
+    loadJobDetailLeads(jobDetailId, true);
+}
+
+function startJobDetailPoll() {
+    if (jobDetailPollTimer) return;
+    jobDetailPollTimer = setInterval(() => {
+        if (jobDetailId && currentTab === 'job-detail') {
+            loadJobDetail(jobDetailId);
+            loadJobDetailLeads(jobDetailId, false);
+        }
+    }, 10000);
+}
+
+function stopJobDetailPoll() {
+    if (jobDetailPollTimer) { clearInterval(jobDetailPollTimer); jobDetailPollTimer = null; }
 }
 
 // ---- Leads ----

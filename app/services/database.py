@@ -54,7 +54,7 @@ def get_existing_place_ids(country: str) -> set[str]:
         return set()
     try:
         ids: set[str] = set()
-        page_size = 10000
+        page_size = 1000
         offset = 0
         while True:
             rows = (
@@ -95,16 +95,15 @@ def flag_chains(job_id: str, chain_names: set[str]) -> int:
     """Mark leads from this job as is_chain=true if their name is in chain_names."""
     if not _client or not chain_names:
         return 0
-    flagged = 0
-    for name in chain_names:
-        try:
-            _client.table(LEADS_TABLE).update(
-                {"is_chain": True}
-            ).eq("job_id", job_id).eq("name", name).execute()
-            flagged += 1
-        except Exception as exc:
-            logger.error("Error flagging chain '%s': %s", name, exc)
-    return flagged
+    try:
+        names_list = list(chain_names)
+        _client.table(LEADS_TABLE).update(
+            {"is_chain": True}
+        ).eq("job_id", job_id).in_("name", names_list).execute()
+        return len(names_list)
+    except Exception as exc:
+        logger.error("Error flagging chains: %s", exc)
+        return 0
 
 
 def update_lead_email(place_id: str, email: str, source: str) -> bool:
@@ -152,7 +151,7 @@ def get_job_categories(job_id: str) -> list[dict]:
         return []
     try:
         all_rows = []
-        page_size = 10000
+        page_size = 1000
         offset = 0
         while True:
             rows = (
