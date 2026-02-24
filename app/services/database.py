@@ -76,6 +76,34 @@ def get_existing_place_ids(country: str) -> set[str]:
         return set()
 
 
+def get_job_place_ids(job_id: str) -> set[str]:
+    """Fetch all place_ids for a specific job (for resume dedup)."""
+    if not _client:
+        return set()
+    try:
+        ids: set[str] = set()
+        page_size = 1000
+        offset = 0
+        while True:
+            rows = (
+                _client.table(LEADS_TABLE)
+                .select("place_id")
+                .eq("job_id", job_id)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            for r in rows.data:
+                if r.get("place_id"):
+                    ids.add(r["place_id"])
+            if len(rows.data) < page_size:
+                break
+            offset += page_size
+        return ids
+    except Exception as exc:
+        logger.error("Error fetching job place_ids: %s", exc)
+        return set()
+
+
 def upsert_leads(records: list[dict]) -> int:
     if not _client or not records:
         return 0

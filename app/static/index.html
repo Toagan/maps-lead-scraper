@@ -373,6 +373,52 @@
                 </table>
                 <div id="jobs-empty" class="hidden p-8 text-center text-gray-400">No jobs yet</div>
             </div>
+
+            <!-- Bottom panels: Credit Usage + Activity Feed -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                <!-- Credit Usage Tracker -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                    <h3 class="text-sm font-semibold text-br-950 mb-3">Credit Usage</h3>
+                    <div id="credit-stats" class="space-y-3">
+                        <div class="flex items-baseline justify-between">
+                            <span class="text-2xl font-bold text-br-900" id="cs-total-credits">—</span>
+                            <span class="text-xs text-gray-400">total credits used</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 text-center">
+                            <div>
+                                <div class="text-lg font-semibold text-gray-800" id="cs-total-calls">—</div>
+                                <div class="text-xs text-gray-400">API calls</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-gray-800" id="cs-total-leads">—</div>
+                                <div class="text-xs text-gray-400">leads</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-green-600" id="cs-cost-per-lead">—</div>
+                                <div class="text-xs text-gray-400">cost / lead</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                <span>Estimated spend</span>
+                                <span id="cs-total-cost">—</span>
+                            </div>
+                            <div class="w-full bg-gray-100 rounded-full h-2">
+                                <div id="cs-spend-bar" class="bg-br-500 h-2 rounded-full transition-all" style="width:0%"></div>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">$0.0005 per credit (3 credits per API call)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity Feed -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                    <h3 class="text-sm font-semibold text-br-950 mb-3">Recent Activity</h3>
+                    <div id="activity-feed" class="space-y-2 max-h-48 overflow-y-auto">
+                        <div class="text-sm text-gray-400 text-center py-4">No activity yet</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Leads view removed - CSV downloads still work via job CSV buttons -->
@@ -1347,10 +1393,14 @@ async function loadJobs() {
         tbody.innerHTML = jobs.map(j => {
             const isActive = ['running','pending','cancelling'].includes(j.status);
             const isFinished = !isActive;
-            const pct = isFinished ? 100 : (j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0);
+            const isIncomplete = j.status === 'cancelled' || j.status === 'budget_reached';
+            const pct = (isFinished && !isIncomplete) ? 100 : (j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0);
             const created = relativeTime(j.created_at);
             const cancelBtn = (j.status === 'running' || j.status === 'pending')
                 ? `<button onclick="cancelJob('${j.id}')" class="text-red-600 hover:text-red-800 text-xs font-medium">Cancel</button>`
+                : '';
+            const resumeBtn = (j.status === 'cancelled' || j.status === 'budget_reached') && j.processed_locations < j.total_locations
+                ? `<button onclick="resumeJob('${j.id}')" class="text-green-600 hover:text-green-800 text-xs font-medium">Resume</button>`
                 : '';
             const downloadBtn = (j.total_leads > 0)
                 ? `<button onclick="downloadJobCSV('${j.id}', '${esc(j.search_query)}', '${esc(j.country || '')}')" class="text-br-600 hover:text-br-800 text-xs font-medium">CSV ↓</button>`
@@ -1401,7 +1451,7 @@ async function loadJobs() {
                     return cl ? `<span class="text-xs text-gray-300"> / ${cl.toLocaleString()}</span>` : '';
                 })()}</td>
                 <td class="px-4 py-3 text-xs text-gray-400" title="${j.created_at ? new Date(j.created_at).toLocaleString() : ''}">${created}</td>
-                <td class="px-4 py-3 space-x-2">${downloadBtn} ${cancelBtn} ${deleteBtn}</td>
+                <td class="px-4 py-3 space-x-2">${downloadBtn} ${resumeBtn} ${cancelBtn} ${deleteBtn}</td>
             </tr>`;
         }).join('');
 
@@ -1410,6 +1460,10 @@ async function loadJobs() {
         const allChecked = allFinished.length > 0 && [...allFinished].every(cb => cb.checked);
         document.getElementById('select-all-jobs').checked = allChecked;
 
+        // Update bottom panels
+        updateCreditStats(jobs);
+        updateActivityFeed(jobs);
+
         // Auto-poll if any job is running
         const hasRunning = jobs.some(j => j.status === 'running' || j.status === 'pending');
         if (hasRunning && currentTab === 'jobs') startJobPoll();
@@ -1417,6 +1471,76 @@ async function loadJobs() {
     } catch(e) {
         console.error('Jobs error:', e);
     }
+}
+
+function updateCreditStats(jobs) {
+    const totalCalls = jobs.reduce((s, j) => s + (j.total_api_calls || 0), 0);
+    const totalCredits = totalCalls * 3;
+    const totalLeads = jobs.reduce((s, j) => s + (j.total_leads || 0), 0);
+    const totalCost = totalCredits * 0.0005;
+    const costPerLead = totalLeads > 0 ? (totalCost / totalLeads) : 0;
+
+    document.getElementById('cs-total-credits').textContent = totalCredits.toLocaleString();
+    document.getElementById('cs-total-calls').textContent = totalCalls.toLocaleString();
+    document.getElementById('cs-total-leads').textContent = totalLeads.toLocaleString();
+    document.getElementById('cs-cost-per-lead').textContent = costPerLead > 0 ? '$' + costPerLead.toFixed(4) : '—';
+    document.getElementById('cs-total-cost').textContent = '$' + totalCost.toFixed(2);
+
+    // Spend bar — scale relative to $50 as a reference budget
+    const pct = Math.min(100, (totalCost / 50) * 100);
+    const bar = document.getElementById('cs-spend-bar');
+    bar.style.width = pct + '%';
+    bar.className = `h-2 rounded-full transition-all ${pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-br-500'}`;
+}
+
+function updateActivityFeed(jobs) {
+    const feed = document.getElementById('activity-feed');
+    if (!jobs.length) { feed.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">No activity yet</div>'; return; }
+
+    // Build events from jobs, sorted by most recent
+    const events = [];
+    for (const j of jobs) {
+        const name = j.job_name || j.search_term || 'Job';
+        const leads = (j.total_leads || 0).toLocaleString();
+        const calls = (j.total_api_calls || 0).toLocaleString();
+
+        if (j.status === 'completed') {
+            events.push({ time: j.completed_at || j.created_at, icon: 'check', color: 'text-green-500',
+                text: `<b>${esc(name)}</b> completed — ${leads} leads, ${calls} API calls` });
+        } else if (j.status === 'running') {
+            events.push({ time: j.created_at, icon: 'play', color: 'text-green-500',
+                text: `<b>${esc(name)}</b> is running — ${leads} leads so far` });
+        } else if (j.status === 'cancelled') {
+            events.push({ time: j.completed_at || j.created_at, icon: 'stop', color: 'text-gray-400',
+                text: `<b>${esc(name)}</b> cancelled at ${leads} leads` });
+        } else if (j.status === 'budget_reached') {
+            events.push({ time: j.completed_at || j.created_at, icon: 'limit', color: 'text-indigo-500',
+                text: `<b>${esc(name)}</b> hit credit limit — ${leads} leads, ${calls} calls` });
+        } else if (j.status === 'failed') {
+            events.push({ time: j.completed_at || j.created_at, icon: 'error', color: 'text-red-500',
+                text: `<b>${esc(name)}</b> failed` });
+        }
+    }
+
+    events.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+    const icons = {
+        check: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>',
+        play: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+        stop: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" stroke-width="2"/></svg>',
+        limit: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+        error: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>',
+    };
+
+    feed.innerHTML = events.slice(0, 10).map(e => `
+        <div class="flex items-start space-x-2.5 py-1.5">
+            <span class="${e.color} mt-0.5 flex-shrink-0">${icons[e.icon]}</span>
+            <div class="min-w-0">
+                <div class="text-sm text-gray-700">${e.text}</div>
+                <div class="text-xs text-gray-400">${relativeTime(e.time)}</div>
+            </div>
+        </div>
+    `).join('');
 }
 
 function startJobPoll() {
@@ -1433,6 +1557,21 @@ async function cancelJob(id) {
         loadJobs();
     } catch(e) {
         console.error('Cancel error:', e);
+    }
+}
+
+async function resumeJob(id) {
+    try {
+        const r = await fetch(`/jobs/${id}/resume`, { method: 'POST' });
+        if (!r.ok) {
+            const err = await r.json();
+            alert('Resume failed: ' + (err.detail || r.statusText));
+            return;
+        }
+        loadJobs();
+        startJobPoll();
+    } catch(e) {
+        console.error('Resume error:', e);
     }
 }
 

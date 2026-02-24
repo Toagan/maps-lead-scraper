@@ -246,6 +246,7 @@ async def run_job(
     serp_discovery: bool = False,
     scrape_mode: str = "smart",
     credit_limit: int | None = None,
+    resume_offset: int = 0,
 ) -> None:
     """
     Main scraping loop executed as a background task.
@@ -255,6 +256,8 @@ async def run_job(
 
     For cities with population >= 100k, a grid of coordinate points is generated
     around the city center to overcome Google's proximity bias and 120-result cap.
+
+    resume_offset: number of grid-point tasks to skip (for resuming cancelled jobs).
     """
     cancel_event = asyncio.Event()
     _running_jobs[job_id] = cancel_event
@@ -282,14 +285,28 @@ async def run_job(
     # Job-local seen set: dedup within this job only
     seen_countries = {c.country or country for c in cities}
     seen_ids: set[str] = set()
-    logger.info("Job %s: %d queries, %d cities",
-                job_id, len(search_queries), len(cities))
 
+    # On resume, preload place_ids already scraped so dedup works correctly
     total_leads = 0
     total_dupes = 0
     total_api_calls = 0
     total_closed_skipped = 0
     saturated_points = 0
+    if resume_offset > 0:
+        existing = await asyncio.to_thread(db.get_job_place_ids, job_id)
+        seen_ids = existing
+        # Reload counters from saved job state
+        job_state = await asyncio.to_thread(db.get_job, job_id)
+        if job_state:
+            total_leads = job_state.get("total_leads", 0)
+            total_dupes = job_state.get("total_duplicates", 0)
+            total_api_calls = job_state.get("total_api_calls", 0)
+        logger.info("Job %s: resuming from offset %d with %d existing place_ids",
+                     job_id, resume_offset, len(seen_ids))
+    else:
+        logger.info("Job %s: %d queries, %d cities",
+                    job_id, len(search_queries), len(cities))
+
     leads_buffer: list[dict] = []
     # Track business name frequencies for chain detection
     name_counts: dict[str, int] = {}
@@ -301,143 +318,139 @@ async def run_job(
         city_grids.append([(gp.lat, gp.lon) for gp in grid])
 
     total_steps = sum(len(g) for g in city_grids) * len(search_queries)
-    current_step = 0
+    current_step = resume_offset  # start counter from where we left off
+
+    # Build full flat list of all grid-point tasks across all queries
+    all_task_descs = []
+    for q_idx, search_term in enumerate(search_queries):
+        for city_idx, city in enumerate(cities):
+            grid_points = city_grids[city_idx]
+            zoom, max_pages = get_city_scrape_config(city.population)
+            city_country = city.country or country
+            city_ww = is_worldwide(city_country)
+            region_code = None if city_ww else get_region(city.lat, city.lon, city_country)
+            gl, hl = _get_gl_hl(city_country)
+            query = f"{search_term} in {city.name}"
+
+            for gp_lat, gp_lon in grid_points:
+                all_task_descs.append({
+                    "city_name": city.name,
+                    "city_country": city_country,
+                    "region_code": region_code,
+                    "query": query,
+                    "gl": gl, "hl": hl,
+                    "gp_lat": gp_lat, "gp_lon": gp_lon,
+                    "zoom": zoom, "max_pages": max_pages,
+                    "search_term": search_term,
+                })
+
+    # Skip already-processed tasks on resume
+    if resume_offset > 0:
+        all_task_descs = all_task_descs[resume_offset:]
+        logger.info("Job %s: skipped %d/%d tasks, %d remaining",
+                     job_id, resume_offset, total_steps, len(all_task_descs))
 
     try:
-        for q_idx, search_term in enumerate(search_queries):
-            if cancel_event.is_set():
-                break
-            logger.info("Job %s: query %d/%d — %s",
-                        job_id, q_idx + 1, len(search_queries), search_term)
+        # Process in batches to allow cancel_event to stop new work.
+        BATCH_SIZE = 40  # 2x semaphore so next batch is ready
+        desc_idx = 0
 
-            # Build a list of grid-point task descriptors (NOT coroutines yet).
-            # We launch them in batches so the cancel_event can actually stop
-            # work before thousands of coroutines have already started.
-            task_descs = []
+        while desc_idx < len(all_task_descs) and not cancel_event.is_set():
+            batch = all_task_descs[desc_idx:desc_idx + BATCH_SIZE]
+            desc_idx += BATCH_SIZE
 
-            for city_idx, city in enumerate(cities):
-                grid_points = city_grids[city_idx]
-                zoom, max_pages = get_city_scrape_config(city.population)
-                city_country = city.country or country
-                city_ww = is_worldwide(city_country)
-                region_code = None if city_ww else get_region(city.lat, city.lon, city_country)
-                gl, hl = _get_gl_hl(city_country)
-                query = f"{search_term} in {city.name}"
+            coros = [
+                _scrape_grid_point_with_meta(
+                    cancel_event=cancel_event, **desc,
+                )
+                for desc in batch
+            ]
 
-                for gp_lat, gp_lon in grid_points:
-                    task_descs.append({
-                        "city_name": city.name,
-                        "city_country": city_country,
-                        "region_code": region_code,
-                        "query": query,
-                        "gl": gl, "hl": hl,
-                        "gp_lat": gp_lat, "gp_lon": gp_lon,
-                        "zoom": zoom, "max_pages": max_pages,
-                        "search_term": search_term,
-                    })
+            for future in asyncio.as_completed(coros):
+                city_name, city_country, region_code, records, api_calls, closed_skipped, saturated = await future
 
-            # Process in batches to allow cancel_event to stop new work.
-            # Batch size matches concurrency — no point queuing more than
-            # the semaphore can run at once.
-            BATCH_SIZE = 40  # 2x semaphore so next batch is ready
-            desc_idx = 0
+                current_step += 1
+                total_api_calls += api_calls
+                total_closed_skipped += closed_skipped
+                if saturated:
+                    saturated_points += 1
 
-            while desc_idx < len(task_descs) and not cancel_event.is_set():
-                batch = task_descs[desc_idx:desc_idx + BATCH_SIZE]
-                desc_idx += BATCH_SIZE
+                for rec in records:
+                    pdata = rec["pdata"]
+                    pid = pdata["place_id"]
 
-                coros = [
-                    _scrape_grid_point_with_meta(
-                        cancel_event=cancel_event, **desc,
+                    if pid in seen_ids:
+                        total_dupes += 1
+                        continue
+
+                    seen_ids.add(pid)
+                    total_leads += 1
+
+                    relevance = compute_category_relevance(
+                        pdata.get("search_term", ""),
+                        pdata.get("category", ""),
+                        pdata.get("categories", ""),
                     )
-                    for desc in batch
-                ]
 
-                for future in asyncio.as_completed(coros):
-                    city_name, city_country, region_code, records, api_calls, closed_skipped, saturated = await future
+                    review_count = pdata.get("review_count") or 0
+                    low_confidence = review_count <= 2
 
-                    current_step += 1
-                    total_api_calls += api_calls
-                    total_closed_skipped += closed_skipped
-                    if saturated:
-                        saturated_points += 1
+                    biz_name = pdata["name"]
+                    name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
 
-                    for rec in records:
-                        pdata = rec["pdata"]
-                        pid = pdata["place_id"]
+                    addr_parts = parse_dach_address(pdata.get("address") or "")
 
-                        if pid in seen_ids:
-                            total_dupes += 1
-                            continue
+                    record = {
+                        "place_id": pid,
+                        "cid": pdata.get("cid") or None,
+                        "name": biz_name,
+                        "address": pdata.get("address") or None,
+                        "street": addr_parts["street"],
+                        "postal_code": addr_parts["postal_code"],
+                        "city_parsed": addr_parts["city_parsed"],
+                        "phone": pdata.get("phone") or None,
+                        "website": pdata.get("website") or None,
+                        "rating": pdata.get("rating"),
+                        "review_count": review_count,
+                        "category": pdata.get("category") or None,
+                        "categories": pdata.get("categories") or None,
+                        "latitude": pdata.get("latitude"),
+                        "longitude": pdata.get("longitude"),
+                        "thumbnail_url": pdata.get("thumbnail_url") or None,
+                        "operating_hours": pdata.get("operating_hours"),
+                        "price_range": pdata.get("price_range") or None,
+                        "description": pdata.get("description") or None,
+                        "country": city_country,
+                        "region": region_code,
+                        "city": city_name,
+                        "search_term": pdata.get("search_term", ""),
+                        "category_relevance": relevance,
+                        "low_confidence": low_confidence,
+                        "job_id": job_id,
+                    }
+                    leads_buffer.append(record)
 
-                        seen_ids.add(pid)
-                        total_leads += 1
+                    if len(leads_buffer) >= 50:
+                        await asyncio.to_thread(db.upsert_leads, leads_buffer)
+                        leads_buffer = []
 
-                        relevance = compute_category_relevance(
-                            search_term,
-                            pdata.get("category", ""),
-                            pdata.get("categories", ""),
-                        )
+                # Credit budget check
+                if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
+                    logger.info("Job %s: credit limit reached (%d/%d)",
+                                job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
+                    cancel_event.set()
 
-                        review_count = pdata.get("review_count") or 0
-                        low_confidence = review_count <= 2
-
-                        biz_name = pdata["name"]
-                        name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
-
-                        addr_parts = parse_dach_address(pdata.get("address") or "")
-
-                        record = {
-                            "place_id": pid,
-                            "cid": pdata.get("cid") or None,
-                            "name": biz_name,
-                            "address": pdata.get("address") or None,
-                            "street": addr_parts["street"],
-                            "postal_code": addr_parts["postal_code"],
-                            "city_parsed": addr_parts["city_parsed"],
-                            "phone": pdata.get("phone") or None,
-                            "website": pdata.get("website") or None,
-                            "rating": pdata.get("rating"),
-                            "review_count": review_count,
-                            "category": pdata.get("category") or None,
-                            "categories": pdata.get("categories") or None,
-                            "latitude": pdata.get("latitude"),
-                            "longitude": pdata.get("longitude"),
-                            "thumbnail_url": pdata.get("thumbnail_url") or None,
-                            "operating_hours": pdata.get("operating_hours"),
-                            "price_range": pdata.get("price_range") or None,
-                            "description": pdata.get("description") or None,
-                            "country": city_country,
-                            "region": region_code,
-                            "city": city_name,
-                            "search_term": search_term,
-                            "category_relevance": relevance,
-                            "low_confidence": low_confidence,
-                            "job_id": job_id,
-                        }
-                        leads_buffer.append(record)
-
-                        if len(leads_buffer) >= 50:
-                            await asyncio.to_thread(db.upsert_leads, leads_buffer)
-                            leads_buffer = []
-
-                    # Credit budget check
-                    if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
-                        logger.info("Job %s: credit limit reached (%d/%d)",
-                                    job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
-                        cancel_event.set()
-
-                    # Progress update every 10 completed grid points
-                    if current_step % 10 == 0 or current_step == total_steps:
-                        await asyncio.to_thread(
-                            db.update_job,
-                            job_id,
-                            processed_locations=current_step,
-                            total_locations=total_steps,
-                            total_leads=total_leads,
-                            total_duplicates=total_dupes,
-                            total_api_calls=total_api_calls,
-                        )
+                # Progress update every 10 completed grid points
+                if current_step % 10 == 0 or current_step == total_steps:
+                    await asyncio.to_thread(
+                        db.update_job,
+                        job_id,
+                        processed_locations=current_step,
+                        total_locations=total_steps,
+                        total_leads=total_leads,
+                        total_duplicates=total_dupes,
+                        total_api_calls=total_api_calls,
+                    )
 
         # Flush remaining leads (always, even on cancel/budget_reached)
         if leads_buffer:

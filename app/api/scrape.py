@@ -294,6 +294,7 @@ async def start_scrape(req: ScrapeRequest):
         "countries": country_list,
         "search_queries": search_queries,
         "credit_limit": req.credit_limit,
+        "serp_discovery": req.serp_discovery,
     }
     job_id = db.create_job(
         search_term=display_name,
