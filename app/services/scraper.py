@@ -224,6 +224,19 @@ async def _scrape_grid_point(
     return records, local_api_calls, local_closed_skipped, saturated
 
 
+async def _scrape_grid_point_with_meta(
+    city_name: str,
+    city_country: str,
+    region_code: str | None,
+    **gp_kwargs,
+) -> tuple[str, str, str | None, list[dict], int, int, bool]:
+    """Wrapper that bundles city metadata with grid point results."""
+    records, api_calls, closed, saturated = await _scrape_grid_point(
+        city_name=city_name, **gp_kwargs,
+    )
+    return city_name, city_country, region_code, records, api_calls, closed, saturated
+
+
 async def run_job(
     job_id: str,
     search_queries: List[str],
@@ -297,123 +310,117 @@ async def run_job(
             logger.info("Job %s: query %d/%d — %s",
                         job_id, q_idx + 1, len(search_queries), search_term)
 
+            # Flatten ALL grid points across ALL cities into one task pool.
+            # The semaphore (20) limits actual API concurrency; this ensures
+            # all slots stay busy even with many single-point small cities.
+            all_coros = []
+
             for city_idx, city in enumerate(cities):
-                if cancel_event.is_set():
-                    break
-
                 grid_points = city_grids[city_idx]
-
                 zoom, max_pages = get_city_scrape_config(city.population)
                 city_country = city.country or country
                 city_ww = is_worldwide(city_country)
                 region_code = None if city_ww else get_region(city.lat, city.lon, city_country)
                 gl, hl = _get_gl_hl(city_country)
-
                 query = f"{search_term} in {city.name}"
 
-                # Launch all grid points for this city concurrently
-                tasks = [
-                    _scrape_grid_point(
-                        query=query,
-                        gl=gl,
-                        hl=hl,
-                        gp_lat=gp_lat,
-                        gp_lon=gp_lon,
-                        zoom=zoom,
-                        max_pages=max_pages,
-                        search_term=search_term,
-                        city_name=city.name,
-                        cancel_event=cancel_event,
-                    )
-                    for gp_lat, gp_lon in grid_points
-                ]
-                results = await asyncio.gather(*tasks)
-
-                # Merge results: central dedup across all grid points
-                city_api_calls = 0
-                for records, api_calls, closed_skipped, saturated in results:
-                    city_api_calls += api_calls
-                    total_api_calls += api_calls
-                    total_closed_skipped += closed_skipped
-                    if saturated:
-                        saturated_points += 1
-
-                    for rec in records:
-                        pdata = rec["pdata"]
-                        pid = pdata["place_id"]
-
-                        if pid in seen_ids:
-                            total_dupes += 1
-                            continue
-
-                        seen_ids.add(pid)
-                        total_leads += 1
-
-                        # Category relevance scoring
-                        relevance = compute_category_relevance(
-                            search_term,
-                            pdata.get("category", ""),
-                            pdata.get("categories", ""),
+                for gp_lat, gp_lon in grid_points:
+                    all_coros.append(
+                        _scrape_grid_point_with_meta(
+                            city_name=city.name,
+                            city_country=city_country,
+                            region_code=region_code,
+                            query=query,
+                            gl=gl,
+                            hl=hl,
+                            gp_lat=gp_lat,
+                            gp_lon=gp_lon,
+                            zoom=zoom,
+                            max_pages=max_pages,
+                            search_term=search_term,
+                            cancel_event=cancel_event,
                         )
+                    )
 
-                        # Quality flags
-                        review_count = pdata.get("review_count") or 0
-                        low_confidence = review_count <= 2
+            # Process results as they complete — zero idle gaps between tasks.
+            # as_completed yields futures in completion order, keeping all
+            # semaphore slots busy continuously.
+            for future in asyncio.as_completed(all_coros):
+                city_name, city_country, region_code, records, api_calls, closed_skipped, saturated = await future
 
-                        # Track name frequency for chain detection
-                        biz_name = pdata["name"]
-                        name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
+                current_step += 1
+                total_api_calls += api_calls
+                total_closed_skipped += closed_skipped
+                if saturated:
+                    saturated_points += 1
 
-                        # Parse address into structured components (DACH)
-                        addr_parts = parse_dach_address(pdata.get("address") or "")
+                for rec in records:
+                    pdata = rec["pdata"]
+                    pid = pdata["place_id"]
 
-                        # Build DB record
-                        record = {
-                            "place_id": pid,
-                            "cid": pdata.get("cid") or None,
-                            "name": biz_name,
-                            "address": pdata.get("address") or None,
-                            "street": addr_parts["street"],
-                            "postal_code": addr_parts["postal_code"],
-                            "city_parsed": addr_parts["city_parsed"],
-                            "phone": pdata.get("phone") or None,
-                            "website": pdata.get("website") or None,
-                            "rating": pdata.get("rating"),
-                            "review_count": review_count,
-                            "category": pdata.get("category") or None,
-                            "categories": pdata.get("categories") or None,
-                            "latitude": pdata.get("latitude"),
-                            "longitude": pdata.get("longitude"),
-                            "thumbnail_url": pdata.get("thumbnail_url") or None,
-                            "operating_hours": pdata.get("operating_hours"),
-                            "price_range": pdata.get("price_range") or None,
-                            "description": pdata.get("description") or None,
-                            "country": city_country,
-                            "region": region_code,
-                            "city": city.name,
-                            "search_term": search_term,
-                            "category_relevance": relevance,
-                            "low_confidence": low_confidence,
-                            "job_id": job_id,
-                        }
-                        leads_buffer.append(record)
+                    if pid in seen_ids:
+                        total_dupes += 1
+                        continue
 
-                        # Batch upsert every 50
-                        if len(leads_buffer) >= 50:
-                            await asyncio.to_thread(db.upsert_leads, leads_buffer)
-                            leads_buffer = []
+                    seen_ids.add(pid)
+                    total_leads += 1
 
-                # Credit budget check after merging city results
+                    relevance = compute_category_relevance(
+                        search_term,
+                        pdata.get("category", ""),
+                        pdata.get("categories", ""),
+                    )
+
+                    review_count = pdata.get("review_count") or 0
+                    low_confidence = review_count <= 2
+
+                    biz_name = pdata["name"]
+                    name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
+
+                    addr_parts = parse_dach_address(pdata.get("address") or "")
+
+                    record = {
+                        "place_id": pid,
+                        "cid": pdata.get("cid") or None,
+                        "name": biz_name,
+                        "address": pdata.get("address") or None,
+                        "street": addr_parts["street"],
+                        "postal_code": addr_parts["postal_code"],
+                        "city_parsed": addr_parts["city_parsed"],
+                        "phone": pdata.get("phone") or None,
+                        "website": pdata.get("website") or None,
+                        "rating": pdata.get("rating"),
+                        "review_count": review_count,
+                        "category": pdata.get("category") or None,
+                        "categories": pdata.get("categories") or None,
+                        "latitude": pdata.get("latitude"),
+                        "longitude": pdata.get("longitude"),
+                        "thumbnail_url": pdata.get("thumbnail_url") or None,
+                        "operating_hours": pdata.get("operating_hours"),
+                        "price_range": pdata.get("price_range") or None,
+                        "description": pdata.get("description") or None,
+                        "country": city_country,
+                        "region": region_code,
+                        "city": city_name,
+                        "search_term": search_term,
+                        "category_relevance": relevance,
+                        "low_confidence": low_confidence,
+                        "job_id": job_id,
+                    }
+                    leads_buffer.append(record)
+
+                    if len(leads_buffer) >= 50:
+                        await asyncio.to_thread(db.upsert_leads, leads_buffer)
+                        leads_buffer = []
+
+                # Credit budget check
                 if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
                     logger.info("Job %s: credit limit reached (%d/%d)",
                                 job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
                     cancel_event.set()
 
-                # Update step count (all grid points for this city done)
-                current_step += len(grid_points)
-
-                # Progress update every 10 steps or after each city
-                if current_step % 10 < len(grid_points) or city_idx == len(cities) - 1:
+                # Progress update every 10 completed grid points
+                if current_step % 10 == 0 or current_step == total_steps:
                     await asyncio.to_thread(
                         db.update_job,
                         job_id,
