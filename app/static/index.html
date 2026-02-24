@@ -929,17 +929,13 @@ function filterGoogleCategories() {
     const matches = query
         ? googleCategories.filter(c => c.toLowerCase().includes(query))
         : googleCategories;
-    if (!query && !selectedGoogleCat) {
-        list.classList.add('hidden');
-        return;
-    }
     list.classList.remove('hidden');
     const display = matches.slice(0, 100);
     list.innerHTML = display.map(c =>
         `<div onclick="selectGoogleCat('${esc(c).replace(/'/g, "\\'")}')" class="px-3 py-1.5 text-sm cursor-pointer hover:bg-br-50 ${c === selectedGoogleCat ? 'bg-br-100 text-br-800 font-medium' : 'text-gray-700'}">${esc(c)}</div>`
     ).join('');
     if (matches.length > 100) {
-        list.innerHTML += `<div class="px-3 py-1.5 text-xs text-gray-400">...and ${matches.length - 100} more. Type to narrow down.</div>`;
+        list.innerHTML += `<div class="px-3 py-1.5 text-xs text-gray-400">Showing 100 of ${matches.length} — type to narrow down.</div>`;
     }
     if (matches.length === 0) {
         list.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No matching categories</div>';
