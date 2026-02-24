@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.services.database import init_supabase, close_supabase
+from app.services.serper import close_session
 from app.api.router import api_router
 
 
@@ -17,6 +18,7 @@ from app.api.router import api_router
 async def lifespan(app: FastAPI):
     init_supabase()
     yield
+    await close_session()
     close_supabase()
 
 

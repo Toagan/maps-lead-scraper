@@ -138,6 +138,92 @@ async def preview_search(
 _CREDITS_PER_CALL = 3  # Serper /maps = 3 credits per API call
 
 
+async def _scrape_grid_point(
+    query: str,
+    gl: str,
+    hl: str,
+    gp_lat: float,
+    gp_lon: float,
+    zoom: int,
+    max_pages: int,
+    search_term: str,
+    city_name: str,
+    cancel_event: asyncio.Event,
+) -> tuple[list[dict], int, int, bool]:
+    """Process one grid point: paginate and collect raw records.
+
+    Returns (records, api_calls, closed_skipped, saturated).
+    Dedup is done centrally after gather to avoid interleaving issues.
+    """
+    records: list[dict] = []
+    local_api_calls = 0
+    local_closed_skipped = 0
+    last_page_count = 0
+
+    for page in range(max_pages):
+        if cancel_event.is_set():
+            break
+
+        data = await search_maps(
+            query=query,
+            gl=gl,
+            hl=hl,
+            lat=gp_lat,
+            lon=gp_lon,
+            zoom=zoom,
+            start=page * 20,
+        )
+        local_api_calls += 1
+
+        if not data or "places" not in data or not data["places"]:
+            break
+
+        places = data["places"]
+        last_page_count = len(places)
+        new_on_page = 0
+        page_pids: set[str] = set()
+
+        for place in places:
+            if is_place_closed(place):
+                local_closed_skipped += 1
+                continue
+
+            pdata = extract_place_data(place, search_term, city_name)
+            pid = pdata["place_id"]
+            if not pid:
+                continue
+
+            if not _result_within_bounds(
+                pdata.get("latitude"),
+                pdata.get("longitude"),
+                gp_lat,
+                gp_lon,
+            ):
+                continue
+
+            # Track new within this page for early-stop (use page-local set)
+            if pid not in page_pids:
+                new_on_page += 1
+                page_pids.add(pid)
+
+            records.append({
+                "pdata": pdata,
+                "gp_lat": gp_lat,
+                "gp_lon": gp_lon,
+            })
+
+        # Partial page = last page
+        if last_page_count < 20:
+            break
+
+        # Adaptive duplicate threshold within this grid point's pages
+        if new_on_page < last_page_count * 0.25:
+            break
+
+    saturated = (page + 1 >= max_pages and last_page_count >= 20) if max_pages > 0 else False
+    return records, local_api_calls, local_closed_skipped, saturated
+
+
 async def run_job(
     job_id: str,
     search_queries: List[str],
@@ -173,7 +259,8 @@ async def run_job(
         return _gl_hl_cache[cc]
 
     # Mark job as running
-    db.update_job(
+    await asyncio.to_thread(
+        db.update_job,
         job_id,
         status="running",
         started_at=datetime.now(timezone.utc).isoformat(),
@@ -222,159 +309,130 @@ async def run_job(
                 region_code = None if city_ww else get_region(city.lat, city.lon, city_country)
                 gl, hl = _get_gl_hl(city_country)
 
-                for gp_lat, gp_lon in grid_points:
-                    if cancel_event.is_set():
-                        break
+                query = f"{search_term} in {city.name}"
 
-                    current_step += 1
-                    query = f"{search_term} in {city.name}"
-                    last_page_count = 0
+                # Launch all grid points for this city concurrently
+                tasks = [
+                    _scrape_grid_point(
+                        query=query,
+                        gl=gl,
+                        hl=hl,
+                        gp_lat=gp_lat,
+                        gp_lon=gp_lon,
+                        zoom=zoom,
+                        max_pages=max_pages,
+                        search_term=search_term,
+                        city_name=city.name,
+                        cancel_event=cancel_event,
+                    )
+                    for gp_lat, gp_lon in grid_points
+                ]
+                results = await asyncio.gather(*tasks)
 
-                    for page in range(max_pages):
-                        if cancel_event.is_set():
-                            break
-
-                        data = await search_maps(
-                            query=query,
-                            gl=gl,
-                            hl=hl,
-                            lat=gp_lat,
-                            lon=gp_lon,
-                            zoom=zoom,
-                            start=page * 20,
-                        )
-                        total_api_calls += 1
-
-                        # Credit budget check
-                        if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
-                            logger.info("Job %s: credit limit reached (%d/%d)",
-                                        job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
-                            cancel_event.set()
-
-                        if not data or "places" not in data or not data["places"]:
-                            break
-
-                        places = data["places"]
-                        new_on_page = 0
-                        last_page_count = len(places)
-                        for place in places:
-                            # Skip permanently closed businesses
-                            if is_place_closed(place):
-                                total_closed_skipped += 1
-                                continue
-
-                            pdata = extract_place_data(place, search_term, city.name)
-                            pid = pdata["place_id"]
-                            if not pid:
-                                continue
-                            # Already processed in THIS job — true duplicate
-                            if pid in seen_ids:
-                                total_dupes += 1
-                                continue
-
-                            # Bounding-box validation: discard results too far
-                            # from the grid search point
-                            if not _result_within_bounds(
-                                pdata.get("latitude"),
-                                pdata.get("longitude"),
-                                gp_lat,
-                                gp_lon,
-                            ):
-                                total_dupes += 1
-                                continue
-
-                            seen_ids.add(pid)
-                            new_on_page += 1
-                            total_leads += 1
-
-                            # Category relevance scoring
-                            relevance = compute_category_relevance(
-                                search_term,
-                                pdata.get("category", ""),
-                                pdata.get("categories", ""),
-                            )
-
-                            # Quality flags
-                            review_count = pdata.get("review_count") or 0
-                            low_confidence = review_count <= 2
-
-                            # Track name frequency for chain detection
-                            biz_name = pdata["name"]
-                            name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
-
-                            # Parse address into structured components (DACH)
-                            addr_parts = parse_dach_address(pdata.get("address") or "")
-
-                            # Build DB record
-                            record = {
-                                "place_id": pid,
-                                "cid": pdata.get("cid") or None,
-                                "name": biz_name,
-                                "address": pdata.get("address") or None,
-                                "street": addr_parts["street"],
-                                "postal_code": addr_parts["postal_code"],
-                                "city_parsed": addr_parts["city_parsed"],
-                                "phone": pdata.get("phone") or None,
-                                "website": pdata.get("website") or None,
-                                "rating": pdata.get("rating"),
-                                "review_count": review_count,
-                                "category": pdata.get("category") or None,
-                                "categories": pdata.get("categories") or None,
-                                "latitude": pdata.get("latitude"),
-                                "longitude": pdata.get("longitude"),
-                                "thumbnail_url": pdata.get("thumbnail_url") or None,
-                                "operating_hours": pdata.get("operating_hours"),
-                                "price_range": pdata.get("price_range") or None,
-                                "description": pdata.get("description") or None,
-                                "country": city_country,
-                                "region": region_code,
-                                "city": city.name,
-                                "search_term": search_term,
-                                "category_relevance": relevance,
-                                "low_confidence": low_confidence,
-                                "job_id": job_id,
-                            }
-                            leads_buffer.append(record)
-
-                            # Batch upsert every 50
-                            if len(leads_buffer) >= 50:
-                                db.upsert_leads(leads_buffer)
-                                leads_buffer = []
-
-                        # Partial page = last page (Google has no more results)
-                        if last_page_count < 20:
-                            break
-
-                        # Adaptive duplicate threshold: stop paginating when
-                        # <25% of the page is new (>75% dupes/existing).
-                        # Saves API credits on diminishing returns.
-                        if new_on_page < last_page_count * 0.25:
-                            break
-
-                    # Saturation detection: if last page of this grid point
-                    # was full AND we hit max_pages, flag it
-                    if page + 1 >= max_pages and last_page_count >= 20:
+                # Merge results: central dedup across all grid points
+                city_api_calls = 0
+                for records, api_calls, closed_skipped, saturated in results:
+                    city_api_calls += api_calls
+                    total_api_calls += api_calls
+                    total_closed_skipped += closed_skipped
+                    if saturated:
                         saturated_points += 1
 
-                # Update job progress periodically (after all grid points for a city)
-                db.update_job(
-                    job_id,
-                    processed_locations=current_step,
-                    total_locations=total_steps,
-                    total_leads=total_leads,
-                    total_duplicates=total_dupes,
-                    total_api_calls=total_api_calls,
-                )
+                    for rec in records:
+                        pdata = rec["pdata"]
+                        pid = pdata["place_id"]
 
-        # Flush remaining leads
+                        if pid in seen_ids:
+                            total_dupes += 1
+                            continue
+
+                        seen_ids.add(pid)
+                        total_leads += 1
+
+                        # Category relevance scoring
+                        relevance = compute_category_relevance(
+                            search_term,
+                            pdata.get("category", ""),
+                            pdata.get("categories", ""),
+                        )
+
+                        # Quality flags
+                        review_count = pdata.get("review_count") or 0
+                        low_confidence = review_count <= 2
+
+                        # Track name frequency for chain detection
+                        biz_name = pdata["name"]
+                        name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
+
+                        # Parse address into structured components (DACH)
+                        addr_parts = parse_dach_address(pdata.get("address") or "")
+
+                        # Build DB record
+                        record = {
+                            "place_id": pid,
+                            "cid": pdata.get("cid") or None,
+                            "name": biz_name,
+                            "address": pdata.get("address") or None,
+                            "street": addr_parts["street"],
+                            "postal_code": addr_parts["postal_code"],
+                            "city_parsed": addr_parts["city_parsed"],
+                            "phone": pdata.get("phone") or None,
+                            "website": pdata.get("website") or None,
+                            "rating": pdata.get("rating"),
+                            "review_count": review_count,
+                            "category": pdata.get("category") or None,
+                            "categories": pdata.get("categories") or None,
+                            "latitude": pdata.get("latitude"),
+                            "longitude": pdata.get("longitude"),
+                            "thumbnail_url": pdata.get("thumbnail_url") or None,
+                            "operating_hours": pdata.get("operating_hours"),
+                            "price_range": pdata.get("price_range") or None,
+                            "description": pdata.get("description") or None,
+                            "country": city_country,
+                            "region": region_code,
+                            "city": city.name,
+                            "search_term": search_term,
+                            "category_relevance": relevance,
+                            "low_confidence": low_confidence,
+                            "job_id": job_id,
+                        }
+                        leads_buffer.append(record)
+
+                        # Batch upsert every 50
+                        if len(leads_buffer) >= 50:
+                            await asyncio.to_thread(db.upsert_leads, leads_buffer)
+                            leads_buffer = []
+
+                # Credit budget check after merging city results
+                if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
+                    logger.info("Job %s: credit limit reached (%d/%d)",
+                                job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
+                    cancel_event.set()
+
+                # Update step count (all grid points for this city done)
+                current_step += len(grid_points)
+
+                # Progress update every 10 steps or after each city
+                if current_step % 10 < len(grid_points) or city_idx == len(cities) - 1:
+                    await asyncio.to_thread(
+                        db.update_job,
+                        job_id,
+                        processed_locations=current_step,
+                        total_locations=total_steps,
+                        total_leads=total_leads,
+                        total_duplicates=total_dupes,
+                        total_api_calls=total_api_calls,
+                    )
+
+        # Flush remaining leads (always, even on cancel/budget_reached)
         if leads_buffer:
-            db.upsert_leads(leads_buffer)
+            await asyncio.to_thread(db.upsert_leads, leads_buffer)
             leads_buffer = []
 
         # Chain detection: flag businesses whose name appeared 5+ times
         chain_names = {n for n, c in name_counts.items() if c >= 5}
         if chain_names:
-            db.flag_chains(job_id, chain_names)
+            await asyncio.to_thread(db.flag_chains, job_id, chain_names)
             logger.info("Job %s: flagged %d chain names (%d leads)",
                         job_id, len(chain_names),
                         sum(c for n, c in name_counts.items() if n in chain_names))
@@ -413,7 +471,8 @@ async def run_job(
             status = "budget_reached"
         else:
             status = "cancelled"
-        db.update_job(
+        await asyncio.to_thread(
+            db.update_job,
             job_id,
             status=status,
             total_leads=total_leads,
@@ -430,7 +489,14 @@ async def run_job(
 
     except Exception as exc:
         logger.exception("Job %s failed: %s", job_id, exc)
-        db.update_job(
+        # Flush any remaining leads even on failure
+        if leads_buffer:
+            try:
+                await asyncio.to_thread(db.upsert_leads, leads_buffer)
+            except Exception:
+                logger.warning("Job %s: failed to flush leads buffer on error", job_id)
+        await asyncio.to_thread(
+            db.update_job,
             job_id,
             status="failed",
             error_message=str(exc),
