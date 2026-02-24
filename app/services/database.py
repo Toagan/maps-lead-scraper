@@ -63,9 +63,26 @@ def upsert_leads(records: list[dict]) -> int:
     if not _client or not records:
         return 0
     try:
-        # Remove None values from each record
-        cleaned = [{k: v for k, v in r.items() if v is not None} for r in records]
+        # Strip job_id from upsert payload so existing leads keep their
+        # original job_id (prevents cross-job contamination on CSV exports).
+        job_id = None
+        place_ids = []
+        cleaned = []
+        for r in records:
+            row = {k: v for k, v in r.items() if v is not None}
+            jid = row.pop("job_id", None)
+            if jid:
+                job_id = jid  # same for all records in a batch
+            place_ids.append(row["place_id"])
+            cleaned.append(row)
         _client.table(LEADS_TABLE).upsert(cleaned, on_conflict="place_id").execute()
+
+        # Stamp job_id only on leads that don't have one yet (truly new)
+        if job_id and place_ids:
+            _client.table(LEADS_TABLE).update(
+                {"job_id": job_id}
+            ).in_("place_id", place_ids).is_("job_id", "null").execute()
+
         return len(cleaned)
     except Exception as exc:
         logger.error("Error upserting leads: %s", exc)
