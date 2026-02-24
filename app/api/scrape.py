@@ -252,12 +252,13 @@ async def start_scrape(req: ScrapeRequest):
     # Multi-country support: countries list overrides single country
     country_list = req.countries if req.countries else [req.country]
 
-    # Worldwide: force country targeting only
+    # Worldwide: allow country, radius, and cities targeting
+    allowed_ww_modes = {"country", "radius", "cities"}
     for c in country_list:
-        if is_worldwide(c) and req.targeting_mode != "country":
+        if is_worldwide(c) and req.targeting_mode not in allowed_ww_modes:
             raise HTTPException(
                 status_code=400,
-                detail="Worldwide mode only supports 'country' targeting",
+                detail=f"Worldwide mode supports 'country', 'radius', and 'cities' targeting (got '{req.targeting_mode}')",
             )
 
     # Resolve cities for all countries

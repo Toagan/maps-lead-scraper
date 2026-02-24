@@ -122,8 +122,42 @@ def update_lead_email(place_id: str, email: str, source: str) -> bool:
         return False
 
 
+def get_job_categories(job_id: str) -> list[dict]:
+    """Return distinct category values with counts for a given job."""
+    if not _client:
+        return []
+    try:
+        all_rows = []
+        page_size = 10000
+        offset = 0
+        while True:
+            rows = (
+                _client.table(LEADS_TABLE)
+                .select("category")
+                .eq("job_id", job_id)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            all_rows.extend(rows.data)
+            if len(rows.data) < page_size:
+                break
+            offset += page_size
+        counts: dict[str, int] = {}
+        for r in all_rows:
+            cat = r.get("category") or "Uncategorized"
+            counts[cat] = counts.get(cat, 0) + 1
+        return sorted(
+            [{"category": cat, "count": cnt} for cat, cnt in counts.items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )
+    except Exception as exc:
+        logger.error("Error getting job categories: %s", exc)
+        return []
+
+
 def _build_leads_query(
-    country=None, region=None, category=None,
+    country=None, region=None, category=None, categories=None,
     has_email=None, has_phone=None, has_website=None,
     search_term=None, min_relevance=None,
     job_id=None, exclude_chains=None, exclude_low_confidence=None,
@@ -136,6 +170,10 @@ def _build_leads_query(
         q = q.eq("region", region)
     if category:
         q = q.ilike("category", f"%{category}%")
+    if categories:
+        cat_list = [c.strip() for c in categories.split(",") if c.strip()]
+        if cat_list:
+            q = q.in_("category", cat_list)
     if has_email:
         q = q.neq("email", None).neq("email", "")
     if has_phone:
@@ -158,7 +196,7 @@ def _build_leads_query(
 
 
 def query_leads(
-    country=None, region=None, category=None,
+    country=None, region=None, category=None, categories=None,
     has_email=None, has_phone=None, has_website=None,
     search_term=None, min_relevance=None,
     job_id=None, exclude_chains=None, exclude_low_confidence=None,
@@ -174,7 +212,7 @@ def query_leads(
         fetched = 0
         total = 0
         while fetched < limit:
-            q = _build_leads_query(country, region, category, has_email, has_phone, has_website, search_term, min_relevance, job_id, exclude_chains, exclude_low_confidence, min_reviews)
+            q = _build_leads_query(country, region, category, categories, has_email, has_phone, has_website, search_term, min_relevance, job_id, exclude_chains, exclude_low_confidence, min_reviews)
             q = q.range(offset + fetched, offset + fetched + page_size - 1)
             result = q.execute()
             if total == 0:

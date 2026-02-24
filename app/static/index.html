@@ -39,6 +39,20 @@
         .badge-cancelled { background: #e5e7eb; color: #374151; }
         .badge-cancelling { background: #fde68a; color: #92400e; }
         .badge-budget_reached { background: #e0e7ff; color: #3730a3; }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+        .pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #3b6bfa; margin-right: 6px; animation: pulse-dot 1.4s ease-in-out infinite; }
+        .job-row-active { border-left: 3px solid #3b6bfa; }
+        .job-row-dim td { color: #9ca3af; }
+        .bulk-toolbar { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 8px; }
+        .bulk-toolbar.visible { display: flex; }
+        .wizard-indicator { display: flex; align-items: center; margin-bottom: 1.5rem; }
+        .wizard-dot { display: flex; flex-direction: column; align-items: center; cursor: pointer; background: none; border: none; padding: 0; }
+        .wizard-dot-num { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; border: 2px solid #d1d5db; color: #9ca3af; background: white; transition: all 0.2s; }
+        .wizard-dot.active .wizard-dot-num, .wizard-dot.completed .wizard-dot-num { border-color: #3b6bfa; color: white; background: #3b6bfa; }
+        .wizard-dot-label { font-size: 0.7rem; color: #9ca3af; margin-top: 4px; font-weight: 500; }
+        .wizard-dot.active .wizard-dot-label, .wizard-dot.completed .wizard-dot-label { color: #3b6bfa; }
+        .wizard-line { flex: 1; height: 2px; background: #e5e7eb; margin: 0 8px; margin-bottom: 18px; }
+        .wizard-line.completed { background: #3b6bfa; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -119,23 +133,44 @@
         <!-- ==================== NEW SCRAPE ==================== -->
         <div id="view-scrape" class="hidden">
             <h2 class="text-xl font-semibold text-br-950 mb-4">New Scrape</h2>
-            <form id="scrape-form" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 max-w-2xl space-y-4">
-                <!-- Search Mode -->
+            <form id="scrape-form" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 max-w-2xl">
+                <!-- Wizard Step Indicator -->
+                <div class="wizard-indicator">
+                    <button type="button" onclick="goToStep(1)" class="wizard-dot active"><span class="wizard-dot-num">1</span><span class="wizard-dot-label">What</span></button>
+                    <div class="wizard-line"></div>
+                    <button type="button" onclick="goToStep(2)" class="wizard-dot"><span class="wizard-dot-num">2</span><span class="wizard-dot-label">Where</span></button>
+                    <div class="wizard-line"></div>
+                    <button type="button" onclick="goToStep(3)" class="wizard-dot"><span class="wizard-dot-num">3</span><span class="wizard-dot-label">Options</span></button>
+                    <div class="wizard-line"></div>
+                    <button type="button" onclick="goToStep(4)" class="wizard-dot"><span class="wizard-dot-num">4</span><span class="wizard-dot-label">Review</span></button>
+                </div>
+                <!-- Step 1: What to search -->
+                <div id="wizard-step-1" class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Search Mode</label>
-                    <div class="flex space-x-4">
-                        <label class="flex items-center">
-                            <input type="radio" name="search_mode" value="term" checked onchange="toggleSearchMode()" class="mr-2 text-br-600 focus:ring-br-500"> Custom Term
-                        </label>
-                        <label class="flex items-center">
-                            <input type="radio" name="search_mode" value="category" onchange="toggleSearchMode()" class="mr-2 text-br-600 focus:ring-br-500"> Category Bundle
-                        </label>
-                    </div>
+                    <h3 class="text-base font-semibold text-br-950">What do you want to find?</h3>
+                    <p class="text-sm text-gray-500">Define the Google Maps search query to find businesses.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <label id="card-term" class="relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-br-500 bg-br-50">
+                        <input type="radio" name="search_mode" value="term" checked onchange="toggleSearchMode()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500">
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">Single Term</div>
+                            <div class="text-xs text-gray-500 mt-0.5">One search query, e.g. "Zahnarzt"</div>
+                        </div>
+                    </label>
+                    <label id="card-category" class="relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-gray-200 hover:border-gray-300">
+                        <input type="radio" name="search_mode" value="category" onchange="toggleSearchMode()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500">
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">Category Bundle</div>
+                            <div class="text-xs text-gray-500 mt-0.5">Multiple related terms for broader coverage</div>
+                        </div>
+                    </label>
                 </div>
                 <!-- Search Term -->
                 <div id="search-term-group">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Search Term</label>
-                    <input type="text" id="search_term" placeholder="e.g. Zahnarzt, Rechtsanwalt" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                    <input type="text" id="search_term" placeholder="e.g. Zahnarzt, Rechtsanwalt, Plumber" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                    <p class="text-xs text-gray-400 mt-1">The exact term used to search Google Maps in each city</p>
                 </div>
                 <!-- Category -->
                 <div id="category-group" class="hidden">
@@ -145,6 +180,7 @@
                         <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create Bundle</button>
                         <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition">ChatGPT Prompt</button>
                     </div>
+                    <p class="text-xs text-gray-400 mt-1">A bundle searches multiple related terms in one job for broader coverage</p>
                     <!-- Bundle Builder -->
                     <div id="bundle-builder" class="hidden mt-3 border border-br-200 rounded-lg p-4 bg-br-50 space-y-3">
                         <div class="flex items-center justify-between">
@@ -219,15 +255,29 @@
                         </div>
                     </div>
                 </div>
-                <!-- Region Mode Toggle -->
+                </div><!-- end wizard-step-1 -->
+                <!-- Step 2: Where to search -->
+                <div id="wizard-step-2" class="hidden space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Region</label>
-                    <div class="flex space-x-4">
-                        <label class="flex items-center">
-                            <input type="radio" name="region_mode" value="dach" checked onchange="toggleRegionMode()" class="mr-2 text-br-600 focus:ring-br-500"> DACH
+                    <h3 class="text-base font-semibold text-br-950">Where do you want to search?</h3>
+                    <p class="text-sm text-gray-500">Pick the countries and areas to cover.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label id="card-dach" class="relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-br-500 bg-br-50">
+                            <input type="radio" name="region_mode" value="dach" checked onchange="toggleRegionMode()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500">
+                            <div>
+                                <div class="text-sm font-medium text-gray-900">Germany, Austria & Switzerland</div>
+                                <div class="text-xs text-gray-500 mt-0.5">DACH region with detailed city data</div>
+                            </div>
                         </label>
-                        <label class="flex items-center">
-                            <input type="radio" name="region_mode" value="worldwide" onchange="toggleRegionMode()" class="mr-2 text-br-600 focus:ring-br-500"> Worldwide
+                        <label id="card-worldwide" class="relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-gray-200 hover:border-gray-300">
+                            <input type="radio" name="region_mode" value="worldwide" onchange="toggleRegionMode()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500">
+                            <div>
+                                <div class="text-sm font-medium text-gray-900">Worldwide</div>
+                                <div class="text-xs text-gray-500 mt-0.5">Any country in the world</div>
+                            </div>
                         </label>
                     </div>
                 </div>
@@ -278,41 +328,60 @@
                         </div>
                     </div>
                 </div>
-                <!-- Scrape Mode -->
+                </div><!-- end wizard-step-2 -->
+                <!-- Step 3: Options -->
+                <div id="wizard-step-3" class="hidden space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Scrape Mode</label>
-                    <select id="scrape_mode" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                    <h3 class="text-base font-semibold text-br-950">How should the scrape run?</h3>
+                    <p class="text-sm text-gray-500">Configure coverage depth, limits, and enrichment.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Coverage Depth</label>
+                    <select id="scrape_mode" onchange="updateScrapeHelp()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                         <option value="quick" data-dach="Quick (cities 50k+)" data-ww="Quick (cities 15k+)">Quick (cities 50k+)</option>
                         <option value="smart" selected data-dach="Smart (cities 10k+)" data-ww="Smart (cities 5k+)">Smart (cities 10k+)</option>
                         <option value="thorough" data-dach="Thorough (cities 5k+)" data-ww="Thorough (cities 1k+)">Thorough (cities 5k+)</option>
                         <option value="max" data-dach="Max (all locations)" data-ww="Max (cities 1k+)">Max (all locations)</option>
                     </select>
+                    <p id="scrape-mode-help" class="text-xs text-gray-400 mt-1">Recommended. Covers mid-size cities and up. Good balance of coverage and credits.</p>
                 </div>
-                <!-- Job Name -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Job Name</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Job Name <span class="font-normal text-gray-400">(optional)</span></label>
                     <input type="text" id="job_name" placeholder="e.g. Berlin Dentists Q1" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                    <p class="text-xs text-gray-400 mt-1">A label to identify this job later. Auto-generated if empty.</p>
                 </div>
-                <!-- Credit Limit -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Credit Limit</label>
-                    <div class="flex items-center space-x-3">
-                        <input type="number" id="credit_limit" placeholder="No limit (max)" min="10" step="10" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
-                        <span class="text-xs text-gray-400">Leave empty = unlimited</span>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Credit Limit <span class="font-normal text-gray-400">(optional)</span></label>
+                    <input type="number" id="credit_limit" placeholder="No limit" min="10" step="10" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                    <p class="text-xs text-gray-400 mt-1">Max API calls for this job. 1 credit = 1 Google Maps API call. Leave empty for no limit.</p>
+                </div>
+                <div class="flex items-start p-3 border border-gray-200 rounded-lg">
+                    <input type="checkbox" id="enrich_emails" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500 rounded">
+                    <div>
+                        <label for="enrich_emails" class="text-sm font-medium text-gray-700 cursor-pointer">Enrich with emails</label>
+                        <p class="text-xs text-gray-400 mt-0.5">Visits each business's website to find email addresses. Makes the scrape significantly slower.</p>
                     </div>
                 </div>
-                <!-- Email enrichment -->
-                <div class="flex items-center">
-                    <input type="checkbox" id="enrich_emails" class="mr-2 text-br-600 focus:ring-br-500 rounded">
-                    <label for="enrich_emails" class="text-sm text-gray-700">Enrich emails (crawls websites — slower)</label>
+                </div><!-- end wizard-step-3 -->
+                <!-- Step 4: Review & Start -->
+                <div id="wizard-step-4" class="hidden space-y-4">
+                    <div>
+                        <h3 class="text-base font-semibold text-br-950">Review & Start</h3>
+                        <p class="text-sm text-gray-500">Confirm your settings before launching the scrape.</p>
+                    </div>
+                    <div id="wizard-summary"></div>
+                    <div id="scrape-result" class="hidden p-3 rounded-lg text-sm"></div>
+                    <div class="space-y-2">
+                        <button type="submit" class="w-full bg-br-600 text-white py-2.5 rounded-lg font-medium hover:bg-br-700 transition shadow-sm text-sm">Start Scraping</button>
+                        <button type="button" onclick="estimateScrape()" class="w-full bg-gray-50 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-100 transition border border-gray-200">Estimate Credits First</button>
+                    </div>
                 </div>
-                <!-- Actions -->
-                <div class="flex space-x-2">
-                    <button type="button" onclick="estimateScrape()" class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-200 transition border border-gray-300 text-sm">Estimate Credits</button>
-                    <button type="button" onclick="previewScrape()" class="flex-1 bg-br-100 text-br-700 py-2.5 rounded-lg font-medium hover:bg-br-200 transition border border-br-300 text-sm">Preview (3 credits)</button>
+                <!-- Wizard Navigation -->
+                <div class="flex justify-between mt-6 pt-4 border-t border-gray-100" id="wizard-nav">
+                    <button type="button" id="wizard-back-btn" onclick="wizardBack()" class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition hidden">&larr; Back</button>
+                    <div class="flex-1"></div>
+                    <button type="button" id="wizard-next-btn" onclick="wizardNext()" class="px-6 py-2 bg-br-600 text-white rounded-lg text-sm font-medium hover:bg-br-700 transition shadow-sm">Next &rarr;</button>
                 </div>
-                <button type="submit" class="w-full bg-br-600 text-white py-2.5 rounded-lg font-medium hover:bg-br-700 transition shadow-sm">Start Scraping</button>
-                <div id="scrape-result" class="hidden mt-3 p-3 rounded-lg text-sm"></div>
             </form>
         </div>
 
@@ -322,10 +391,15 @@
                 <h2 class="text-xl font-semibold text-br-950">Jobs</h2>
                 <button onclick="loadJobs()" class="text-sm text-br-600 hover:text-br-700 font-medium">Refresh</button>
             </div>
+            <div id="bulk-toolbar" class="bulk-toolbar">
+                <span class="text-sm font-medium text-red-800"><span id="bulk-count">0</span> selected</span>
+                <button onclick="deleteSelectedJobs()" class="bg-red-600 text-white px-3 py-1 rounded-lg text-sm font-medium hover:bg-red-700 transition">Delete Selected</button>
+            </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
                 <table class="min-w-full text-sm">
                     <thead class="bg-br-50 border-b border-gray-200">
                         <tr>
+                            <th class="px-2 py-3 text-center w-8"><input type="checkbox" id="select-all-jobs" onchange="toggleSelectAllJobs()" class="text-br-600 focus:ring-br-500 rounded" title="Select all finished jobs"></th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Search Term</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Country</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Status</th>
@@ -411,6 +485,30 @@
 
     </main>
 
+    <!-- Category Picker Modal -->
+    <div id="category-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div class="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md mx-4">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-semibold text-br-950">Select Categories for CSV</h3>
+                <button onclick="closeCategoryModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div class="px-5 py-4">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm text-gray-500" id="cat-modal-info"></span>
+                    <div class="space-x-2">
+                        <button onclick="toggleAllCategories(true)" class="text-xs text-br-600 hover:text-br-800 font-medium">Select All</button>
+                        <button onclick="toggleAllCategories(false)" class="text-xs text-gray-500 hover:text-gray-700 font-medium">Deselect All</button>
+                    </div>
+                </div>
+                <div id="cat-modal-list" class="space-y-1 max-h-64 overflow-y-auto"></div>
+            </div>
+            <div class="px-5 py-4 border-t border-gray-200 flex justify-end space-x-2">
+                <button onclick="closeCategoryModal()" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+                <button onclick="confirmCategoryDownload()" class="px-4 py-2 bg-br-600 text-white rounded-lg text-sm font-medium hover:bg-br-700 transition shadow-sm">Download CSV</button>
+            </div>
+        </div>
+    </div>
+
 <script>
 // ---- State ----
 let currentTab = 'dashboard';
@@ -420,6 +518,82 @@ const LEADS_PER_PAGE = 50;
 let totalLeads = 0;
 let regionsData = [];
 let wwCountriesLoaded = false;
+let wizardStep = 1;
+
+// ---- Wizard ----
+function showWizardStep(step) {
+    wizardStep = step;
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('wizard-step-' + i);
+        if (el) el.classList.toggle('hidden', i !== step);
+    }
+    document.querySelectorAll('.wizard-dot').forEach((dot, idx) => {
+        dot.classList.toggle('active', idx + 1 === step);
+        dot.classList.toggle('completed', idx + 1 < step);
+    });
+    document.querySelectorAll('.wizard-line').forEach((line, idx) => {
+        line.classList.toggle('completed', idx + 1 < step);
+    });
+    document.getElementById('wizard-back-btn').classList.toggle('hidden', step === 1);
+    document.getElementById('wizard-next-btn').classList.toggle('hidden', step === 4);
+    document.getElementById('wizard-nav').classList.toggle('hidden', step === 4);
+    if (step === 4) buildWizardSummary();
+}
+function wizardNext() { if (wizardStep < 4) showWizardStep(wizardStep + 1); }
+function wizardBack() { if (wizardStep > 1) showWizardStep(wizardStep - 1); }
+function goToStep(step) { showWizardStep(step); }
+
+function updateScrapeHelp() {
+    const helps = {
+        quick: 'Fastest and cheapest. Only searches major cities. Good for testing a new search term.',
+        smart: 'Recommended. Covers mid-size cities and up. Good balance of coverage and credits.',
+        thorough: 'High coverage. Includes smaller towns. Uses significantly more credits.',
+        max: 'Maximum possible coverage. Searches every known location. Highest credit usage.'
+    };
+    const el = document.getElementById('scrape-mode-help');
+    if (el) el.textContent = helps[document.getElementById('scrape_mode').value] || '';
+}
+
+function buildWizardSummary() {
+    const mode = document.querySelector('input[name="search_mode"]:checked').value;
+    let searchText;
+    if (mode === 'term') {
+        searchText = esc(document.getElementById('search_term').value.trim()) || '<span class="text-gray-400">not set</span>';
+    } else {
+        const sel = document.getElementById('category_key');
+        searchText = esc(sel.options[sel.selectedIndex]?.text || '-');
+    }
+    const regionMode = document.querySelector('input[name="region_mode"]:checked').value;
+    let locationText;
+    if (regionMode === 'dach') {
+        const names = {de:'Germany',at:'Austria',ch:'Switzerland'};
+        const countries = getSelectedDachCountries().map(c => names[c] || c).join(', ');
+        const targeting = document.getElementById('targeting_mode').value;
+        const targetLabels = {country:'Entire country', regions:'Specific regions', radius:'Radius search'};
+        locationText = esc(countries + ' \u2014 ' + (targetLabels[targeting] || targeting));
+    } else {
+        const sel = document.getElementById('ww-country');
+        locationText = esc(sel.options[sel.selectedIndex]?.text || '-');
+    }
+    const scrapeMode = document.getElementById('scrape_mode');
+    const coverageText = esc(scrapeMode.options[scrapeMode.selectedIndex]?.text || '-');
+    const jobName = esc(document.getElementById('job_name').value.trim()) || '<span class="text-gray-400">Auto-generated</span>';
+    const creditLimit = document.getElementById('credit_limit').value ? esc(document.getElementById('credit_limit').value + ' credits') : 'Unlimited';
+    const enrichEmails = document.getElementById('enrich_emails').checked ? 'Yes' : 'No';
+    const rows = [
+        ['Search', searchText],
+        ['Location', locationText],
+        ['Coverage', coverageText],
+        ['Job Name', jobName],
+        ['Credit Limit', creditLimit],
+        ['Email Enrichment', enrichEmails],
+    ];
+    document.getElementById('wizard-summary').innerHTML =
+        '<div class="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200">' +
+        rows.map(([l, v]) =>
+            `<div class="flex justify-between px-4 py-2.5"><span class="text-sm text-gray-500">${l}</span><span class="text-sm font-medium text-gray-900">${v}</span></div>`
+        ).join('') + '</div>';
+}
 
 // ---- Navigation ----
 function showTab(tab) {
@@ -431,7 +605,7 @@ function showTab(tab) {
     if (tab === 'dashboard') loadStats();
     if (tab === 'jobs') { loadJobs(); startJobPoll(); }
     if (tab === 'leads') { currentLeadPage = 0; loadLeads(); }
-    if (tab === 'scrape') { loadCategories(); loadRegions(); }
+    if (tab === 'scrape') { loadCategories(); loadRegions(); showWizardStep(1); }
     if (tab !== 'jobs') stopJobPoll();
 }
 
@@ -728,6 +902,10 @@ function toggleSearchMode() {
     const mode = document.querySelector('input[name="search_mode"]:checked').value;
     document.getElementById('search-term-group').classList.toggle('hidden', mode !== 'term');
     document.getElementById('category-group').classList.toggle('hidden', mode !== 'category');
+    const active = 'relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-br-500 bg-br-50';
+    const inactive = 'relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-gray-200 hover:border-gray-300';
+    document.getElementById('card-term').className = mode === 'term' ? active : inactive;
+    document.getElementById('card-category').className = mode === 'category' ? active : inactive;
 }
 
 function toggleRegionMode() {
@@ -736,15 +914,30 @@ function toggleRegionMode() {
     const multiCountry = !isWW && getSelectedDachCountries().length > 1;
     document.getElementById('dach-country-group').classList.toggle('hidden', isWW);
     document.getElementById('ww-country-group').classList.toggle('hidden', !isWW);
-    document.getElementById('targeting-group').classList.toggle('hidden', isWW || multiCountry);
+    // Show targeting for worldwide (country + radius) and single DACH, hide for multi-DACH
+    document.getElementById('targeting-group').classList.toggle('hidden', multiCountry);
+    // Toggle region option visibility based on mode
+    const targetSel = document.getElementById('targeting_mode');
+    const regionsOpt = targetSel.querySelector('option[value="regions"]');
+    if (regionsOpt) regionsOpt.hidden = isWW;
+    if (isWW && targetSel.value === 'regions') targetSel.value = 'country';
     document.getElementById('regions-group').classList.add('hidden');
     document.getElementById('radius-group').classList.add('hidden');
+    toggleTargeting();
     // Update scrape mode labels
     const opts = document.getElementById('scrape_mode').options;
     for (const opt of opts) {
         opt.textContent = isWW ? opt.dataset.ww : opt.dataset.dach;
     }
     if (isWW) loadWorldwideCountries();
+    // Update region card styles
+    const active = 'relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-br-500 bg-br-50';
+    const inactive = 'relative flex items-start p-3 border-2 rounded-lg cursor-pointer transition border-gray-200 hover:border-gray-300';
+    const cardDach = document.getElementById('card-dach');
+    const cardWw = document.getElementById('card-worldwide');
+    if (cardDach) cardDach.className = !isWW ? active : inactive;
+    if (cardWw) cardWw.className = isWW ? active : inactive;
+    updateScrapeHelp();
 }
 
 async function loadWorldwideCountries() {
@@ -898,46 +1091,151 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
 });
 
 // ---- Jobs ----
+const selectedJobIds = new Set();
+
+function humanizeStatus(s) {
+    return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function relativeTime(dateStr) {
+    if (!dateStr) return '-';
+    const now = Date.now();
+    const then = new Date(dateStr).getTime();
+    const diff = now - then;
+    const secs = Math.floor(diff / 1000);
+    if (secs < 60) return 'Just now';
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + 'm ago';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return days + 'd ago';
+    return new Date(dateStr).toLocaleDateString();
+}
+
+function formatDuration(ms) {
+    if (ms < 60000) return '<1m';
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return mins + 'm';
+    const hrs = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem ? hrs + 'h ' + rem + 'm' : hrs + 'h';
+}
+
+function estimateETA(job) {
+    if (job.status !== 'running' || !job.created_at || !job.total_locations || !job.processed_locations) return '';
+    const elapsed = Date.now() - new Date(job.created_at).getTime();
+    if (elapsed < 5000 || job.processed_locations < 1) return '';
+    const rate = job.processed_locations / elapsed;
+    const remaining = job.total_locations - job.processed_locations;
+    const etaMs = remaining / rate;
+    return '~' + formatDuration(etaMs) + ' left';
+}
+
+function updateBulkToolbar() {
+    const toolbar = document.getElementById('bulk-toolbar');
+    const count = selectedJobIds.size;
+    document.getElementById('bulk-count').textContent = count;
+    toolbar.classList.toggle('visible', count > 0);
+}
+
+function toggleJobSelect(id) {
+    if (selectedJobIds.has(id)) selectedJobIds.delete(id);
+    else selectedJobIds.add(id);
+    updateBulkToolbar();
+    // sync header checkbox
+    const allFinished = document.querySelectorAll('.job-select-cb');
+    const allChecked = allFinished.length > 0 && [...allFinished].every(cb => cb.checked);
+    document.getElementById('select-all-jobs').checked = allChecked;
+}
+
+function toggleSelectAllJobs() {
+    const checked = document.getElementById('select-all-jobs').checked;
+    document.querySelectorAll('.job-select-cb').forEach(cb => {
+        cb.checked = checked;
+        const id = cb.dataset.jobId;
+        if (checked) selectedJobIds.add(id);
+        else selectedJobIds.delete(id);
+    });
+    updateBulkToolbar();
+}
+
+async function deleteSelectedJobs() {
+    const count = selectedJobIds.size;
+    if (!count) return;
+    if (!confirm(`Delete ${count} selected job(s) and all their leads? This cannot be undone.`)) return;
+    const ids = [...selectedJobIds];
+    for (const id of ids) {
+        try { await fetch(`/jobs/${id}`, { method: 'DELETE' }); } catch(e) { console.error('Delete error:', e); }
+    }
+    selectedJobIds.clear();
+    updateBulkToolbar();
+    document.getElementById('select-all-jobs').checked = false;
+    loadJobs();
+}
+
 async function loadJobs() {
     try {
         const r = await fetch('/jobs?limit=50');
         const jobs = await r.json();
         const tbody = document.getElementById('jobs-body');
         const empty = document.getElementById('jobs-empty');
-        if (!jobs.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+        if (!jobs.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); selectedJobIds.clear(); updateBulkToolbar(); return; }
         empty.classList.add('hidden');
+        // Remove selected IDs that no longer exist
+        const jobIds = new Set(jobs.map(j => j.id));
+        for (const id of [...selectedJobIds]) { if (!jobIds.has(id)) selectedJobIds.delete(id); }
+        updateBulkToolbar();
+
         tbody.innerHTML = jobs.map(j => {
             const pct = j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0;
-            const created = j.created_at ? new Date(j.created_at).toLocaleString() : '-';
+            const isActive = ['running','pending','cancelling'].includes(j.status);
+            const isFinished = !isActive;
+            const created = relativeTime(j.created_at);
             const cancelBtn = (j.status === 'running' || j.status === 'pending')
                 ? `<button onclick="cancelJob('${j.id}')" class="text-red-600 hover:text-red-800 text-xs font-medium">Cancel</button>`
                 : '';
             const downloadBtn = (j.total_leads > 0)
                 ? `<button onclick="downloadJobCSV('${j.id}')" class="text-br-600 hover:text-br-800 text-xs font-medium">CSV ↓</button>`
                 : '';
-            const isFinished = !['running','pending','cancelling'].includes(j.status);
             const deleteBtn = isFinished
                 ? `<button onclick="deleteJob('${j.id}')" class="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>`
                 : '';
-            return `<tr class="hover:bg-gray-50">
+            const checkbox = isFinished
+                ? `<input type="checkbox" class="job-select-cb text-br-600 focus:ring-br-500 rounded" data-job-id="${j.id}" onchange="toggleJobSelect('${j.id}')" ${selectedJobIds.has(j.id) ? 'checked' : ''}>`
+                : '';
+            const statusDot = isActive ? '<span class="pulse-dot"></span>' : '';
+            const progressBarColor = isActive ? 'bg-br-500' : 'bg-gray-400';
+            const rowClasses = [];
+            if (isActive) rowClasses.push('job-row-active');
+            if (isFinished && (j.total_leads || 0) === 0) rowClasses.push('job-row-dim');
+            return `<tr class="${rowClasses.join(' ')} hover:bg-gray-50">
+                <td class="px-2 py-3 text-center">${checkbox}</td>
                 <td class="px-4 py-3 font-medium">${esc(j.job_name || j.search_term)}</td>
                 <td class="px-4 py-3">${(j.country||'').toUpperCase()}</td>
-                <td class="px-4 py-3"><span class="badge badge-${j.status}">${j.status}</span></td>
+                <td class="px-4 py-3"><span class="badge badge-${j.status}">${statusDot}${humanizeStatus(j.status)}</span></td>
                 <td class="px-4 py-3">
                     <div class="flex items-center space-x-2">
                         <div class="w-24 bg-gray-200 rounded-full h-2">
-                            <div class="bg-br-500 h-2 rounded-full transition-all" style="width:${pct}%"></div>
+                            <div class="${progressBarColor} h-2 rounded-full transition-all" style="width:${pct}%"></div>
                         </div>
                         <span class="text-xs text-gray-500">${j.processed_locations}/${j.total_locations}</span>
                     </div>
+                    ${(() => { const eta = estimateETA(j); return eta ? `<div class="text-xs text-br-500 mt-0.5">${eta}</div>` : ''; })()}
                 </td>
                 <td class="px-4 py-3">${j.total_leads || 0}</td>
                 <td class="px-4 py-3 text-gray-400">${j.total_duplicates || 0}</td>
                 <td class="px-4 py-3 text-gray-400">${j.total_api_calls || 0}</td>
-                <td class="px-4 py-3 text-xs text-gray-400">${created}</td>
+                <td class="px-4 py-3 text-xs text-gray-400" title="${j.created_at ? new Date(j.created_at).toLocaleString() : ''}">${created}</td>
                 <td class="px-4 py-3 space-x-2">${downloadBtn} ${cancelBtn} ${deleteBtn}</td>
             </tr>`;
         }).join('');
+
+        // Sync header checkbox
+        const allFinished = document.querySelectorAll('.job-select-cb');
+        const allChecked = allFinished.length > 0 && [...allFinished].every(cb => cb.checked);
+        document.getElementById('select-all-jobs').checked = allChecked;
 
         // Auto-poll if any job is running
         const hasRunning = jobs.some(j => j.status === 'running' || j.status === 'pending');
@@ -1055,12 +1353,60 @@ function downloadCSV() {
     window.open('/leads?' + p.toString(), '_blank');
 }
 
-function downloadJobCSV(jobId) {
+let categoryModalJobId = null;
+
+async function downloadJobCSV(jobId) {
+    categoryModalJobId = jobId;
+    const list = document.getElementById('cat-modal-list');
+    list.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">Loading categories...</div>';
+    document.getElementById('cat-modal-info').textContent = '';
+    document.getElementById('category-modal').classList.remove('hidden');
+    try {
+        const r = await fetch('/leads/categories?job_id=' + encodeURIComponent(jobId));
+        const cats = await r.json();
+        if (!cats.length) {
+            list.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">No categories found</div>';
+            return;
+        }
+        const total = cats.reduce((s, c) => s + c.count, 0);
+        document.getElementById('cat-modal-info').textContent = `${cats.length} categories, ${total} leads`;
+        list.innerHTML = cats.map((c, i) =>
+            `<label class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                <span class="flex items-center">
+                    <input type="checkbox" checked data-cat="${esc(c.category)}" class="cat-check mr-2.5 text-br-600 focus:ring-br-500 rounded">
+                    <span class="text-sm text-gray-800">${esc(c.category)}</span>
+                </span>
+                <span class="text-xs text-gray-400">${c.count}</span>
+            </label>`
+        ).join('');
+    } catch(e) {
+        list.innerHTML = '<div class="text-sm text-red-500 py-4 text-center">Failed to load categories</div>';
+    }
+}
+
+function closeCategoryModal() {
+    document.getElementById('category-modal').classList.add('hidden');
+    categoryModalJobId = null;
+}
+
+function toggleAllCategories(checked) {
+    document.querySelectorAll('.cat-check').forEach(cb => cb.checked = checked);
+}
+
+function confirmCategoryDownload() {
+    const selected = [...document.querySelectorAll('.cat-check:checked')].map(cb => cb.dataset.cat);
+    if (!selected.length) { alert('Select at least one category'); return; }
     const p = new URLSearchParams();
-    p.set('job_id', jobId);
+    p.set('job_id', categoryModalJobId);
     p.set('format', 'csv');
     p.set('limit', '50000');
+    // Only add categories filter if not all are selected
+    const allCount = document.querySelectorAll('.cat-check').length;
+    if (selected.length < allCount) {
+        p.set('categories', selected.join(','));
+    }
     window.open('/leads?' + p.toString(), '_blank');
+    closeCategoryModal();
 }
 
 // ---- Helpers ----

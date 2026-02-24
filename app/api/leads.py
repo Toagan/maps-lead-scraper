@@ -20,11 +20,17 @@ def _add_google_maps_url(lead: dict) -> dict:
     return lead
 
 
+@router.get("/leads/categories")
+async def get_lead_categories(job_id: str):
+    return db.get_job_categories(job_id)
+
+
 @router.get("/leads")
 async def get_leads(
     country: Optional[str] = None,
     region: Optional[str] = None,
     category: Optional[str] = None,
+    categories: Optional[str] = None,
     has_email: Optional[bool] = None,
     has_phone: Optional[bool] = None,
     has_website: Optional[bool] = None,
@@ -42,6 +48,7 @@ async def get_leads(
         country=country,
         region=region,
         category=category,
+        categories=categories,
         has_email=has_email,
         has_phone=has_phone,
         has_website=has_website,

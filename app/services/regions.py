@@ -105,10 +105,22 @@ def resolve_cities(
     targeting_mode: "country" | "regions" | "cities" | "radius"
     scrape_mode: "quick" | "smart" | "thorough" | "max"
     """
-    # Worldwide countries bypass all DACH logic
+    # Worldwide countries: load cities, then apply targeting filters
     from app.geo.worldwide import is_worldwide, load_worldwide_cities
     if is_worldwide(country):
-        return load_worldwide_cities(country, scrape_mode)
+        ww_cities = load_worldwide_cities(country, scrape_mode)
+        if targeting_mode == "radius":
+            if center_lat is None or center_lng is None or radius_km is None:
+                raise ValueError("Radius mode requires center_lat, center_lng, radius_km")
+            ww_cities = [
+                c for c in ww_cities
+                if haversine_km(center_lat, center_lng, c.lat, c.lon) <= radius_km
+            ]
+        elif targeting_mode == "cities" and cities:
+            city_names = set(c.lower() for c in cities)
+            ww_cities = [c for c in ww_cities if c.name.lower() in city_names]
+        ww_cities.sort(key=lambda c: c.population, reverse=True)
+        return ww_cities
 
     min_pop = MIN_POP.get(scrape_mode, 10_000)
 
