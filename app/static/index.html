@@ -137,10 +137,11 @@
                 <div id="category-group" class="hidden">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
                     <div class="flex items-center space-x-2">
-                        <select id="category_key" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
+                        <select id="category_key" onchange="showBundlePreview()" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
                         <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create Bundle</button>
                         <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition">ChatGPT Prompt</button>
                     </div>
+                    <div id="bundle-preview" class="hidden mt-2 border border-gray-200 rounded-lg px-3 py-2.5 bg-gray-50 max-h-40 overflow-y-auto"></div>
                     <p class="text-xs text-gray-400 mt-1">A bundle searches multiple related terms in one job for broader coverage</p>
                     <!-- Bundle Builder -->
                     <div id="bundle-builder" class="hidden mt-3 border border-br-200 rounded-lg p-4 bg-br-50 space-y-3">
@@ -603,6 +604,7 @@ async function loadStats() {
 
 // ---- Scrape Form ----
 let categoriesLoaded = false;
+let categoriesData = {};  // full bundle data keyed by bundle key
 let bundleTerms = [];
 
 async function loadCategories(forceReload) {
@@ -610,6 +612,7 @@ async function loadCategories(forceReload) {
     try {
         const r = await fetch('/categories');
         const d = await r.json();
+        categoriesData = d;
         const sel = document.getElementById('category_key');
         sel.innerHTML = '';
         for (const [key, val] of Object.entries(d)) {
@@ -618,10 +621,6 @@ async function loadCategories(forceReload) {
             opt.textContent = `${val.name} (${val.query_count} terms)`;
             if (val.custom) opt.textContent = '\u2605 ' + opt.textContent;
             sel.appendChild(opt);
-            if (val.custom) {
-                const delBtn = document.createElement('span');
-                // We'll handle delete via a separate click on the option area
-            }
         }
         // Add delete buttons for custom bundles below the select
         let delContainer = document.getElementById('custom-bundle-deletes');
@@ -641,9 +640,27 @@ async function loadCategories(forceReload) {
             }
         }
         categoriesLoaded = true;
+        showBundlePreview();
     } catch(e) {
         console.error('Categories error:', e);
     }
+}
+
+function showBundlePreview() {
+    const sel = document.getElementById('category_key');
+    const preview = document.getElementById('bundle-preview');
+    if (!preview) return;
+    const key = sel.value;
+    const bundle = categoriesData[key];
+    if (!bundle || !bundle.queries) {
+        preview.classList.add('hidden');
+        return;
+    }
+    preview.classList.remove('hidden');
+    const terms = bundle.queries;
+    preview.innerHTML = '<div class="flex flex-wrap gap-1.5">' +
+        terms.map(t => `<span class="inline-block bg-white border border-gray-200 text-gray-700 text-xs px-2 py-1 rounded-md">${esc(t)}</span>`).join('') +
+        '</div>';
 }
 
 function toggleBundleBuilder() {
