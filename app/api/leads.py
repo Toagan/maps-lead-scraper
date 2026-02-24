@@ -43,6 +43,7 @@ async def get_leads(
     limit: int = Query(default=100, le=50000),
     offset: int = 0,
     format: Optional[str] = None,
+    filename: Optional[str] = None,
 ):
     leads, total = db.query_leads(
         country=country,
@@ -65,20 +66,27 @@ async def get_leads(
     leads = [_add_google_maps_url(l) for l in leads]
 
     if format == "csv":
-        return _csv_response(leads)
+        return _csv_response(leads, filename=filename)
 
     return {"leads": leads, "total": total, "limit": limit, "offset": offset}
 
 
-def _csv_response(leads: List[dict]) -> StreamingResponse:
+def _csv_response(leads: List[dict], filename: Optional[str] = None) -> StreamingResponse:
     output = io.StringIO()
+    fname = (filename.strip() if filename else "leads") or "leads"
+    # Sanitize: keep alphanumeric, hyphens, underscores, dots
+    fname = "".join(c for c in fname if c.isalnum() or c in "-_.")
+    if not fname:
+        fname = "leads"
+    fname += ".csv"
+
     if not leads:
         output.write("")
         output.seek(0)
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=leads.csv"},
+            headers={"Content-Disposition": f"attachment; filename={fname}"},
         )
 
     writer = csv.DictWriter(output, fieldnames=leads[0].keys())
@@ -89,5 +97,5 @@ def _csv_response(leads: List[dict]) -> StreamingResponse:
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
