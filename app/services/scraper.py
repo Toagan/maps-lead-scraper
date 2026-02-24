@@ -523,12 +523,15 @@ async def run_job(
                 await asyncio.to_thread(db.upsert_leads, leads_buffer)
             except Exception:
                 logger.warning("Job %s: failed to flush leads buffer on error", job_id)
-        await asyncio.to_thread(
-            db.update_job,
-            job_id,
-            status="failed",
-            error_message=str(exc),
-            completed_at=datetime.now(timezone.utc).isoformat(),
-        )
+        try:
+            await asyncio.to_thread(
+                db.update_job,
+                job_id,
+                status="failed",
+                error_message=str(exc),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception:
+            logger.error("Job %s: could not update status to failed", job_id)
     finally:
         _running_jobs.pop(job_id, None)
