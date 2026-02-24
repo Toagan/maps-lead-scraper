@@ -107,6 +107,20 @@ def compute_category_relevance(search_term: str, category: str, categories_str: 
         if len(word) >= 4 and word in search_lower:
             return 0.8
 
+    # Stem prefix match: "Steuerberater" ↔ "Steuerberatung" share prefix "steuerber"
+    # Check if the search term and any category word share a common prefix >= 6 chars.
+    for word in combined.replace(",", " ").split():
+        if len(word) >= 6:
+            prefix_len = min(len(search_lower), len(word))
+            common = 0
+            for i in range(prefix_len):
+                if search_lower[i] == word[i]:
+                    common += 1
+                else:
+                    break
+            if common >= 6:
+                return 0.75
+
     # Category exists but zero overlap with search term
     if category:
         return 0.3
