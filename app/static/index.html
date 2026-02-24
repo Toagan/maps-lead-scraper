@@ -136,11 +136,20 @@
                 <!-- Category -->
                 <div id="category-group" class="hidden">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                    <div class="flex items-center space-x-2">
-                        <select id="category_key" onchange="showBundlePreview()" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none"></select>
-                        <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create Bundle</button>
-                        <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition">ChatGPT Prompt</button>
+                    <!-- Hidden select keeps form logic working -->
+                    <select id="category_key" onchange="showBundlePreview()" class="hidden"></select>
+                    <!-- Search + actions bar -->
+                    <div class="flex items-center space-x-2 mb-2">
+                        <div class="relative flex-1">
+                            <input type="text" id="bundle-search" placeholder="Search bundles..." oninput="filterBundles()" class="w-full border border-gray-300 rounded-lg px-3 py-2 pl-8 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
+                            <svg class="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create</button>
+                        <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition">AI Generate</button>
                     </div>
+                    <!-- Bundle grid -->
+                    <div id="bundle-grid" class="border border-gray-200 rounded-lg max-h-72 overflow-y-auto"></div>
+                    <!-- Preview of selected bundle terms -->
                     <div id="bundle-preview" class="hidden mt-2 border border-gray-200 rounded-lg px-3 py-2.5 bg-gray-50 max-h-40 overflow-y-auto"></div>
                     <p class="text-xs text-gray-400 mt-1">A bundle searches multiple related terms in one job for broader coverage</p>
                     <!-- Bundle Builder -->
@@ -665,37 +674,78 @@ async function loadCategories(forceReload) {
         const r = await fetch('/categories');
         const d = await r.json();
         categoriesData = d;
+        // Keep hidden select in sync for form logic
         const sel = document.getElementById('category_key');
         sel.innerHTML = '';
         for (const [key, val] of Object.entries(d)) {
             const opt = document.createElement('option');
             opt.value = key;
-            opt.textContent = `${val.name} (${val.query_count} terms)`;
-            if (val.custom) opt.textContent = '\u2605 ' + opt.textContent;
+            opt.textContent = val.name;
             sel.appendChild(opt);
         }
-        // Add delete buttons for custom bundles below the select
-        let delContainer = document.getElementById('custom-bundle-deletes');
-        if (!delContainer) {
-            delContainer = document.createElement('div');
-            delContainer.id = 'custom-bundle-deletes';
-            delContainer.className = 'mt-1 flex flex-wrap gap-1';
-            sel.parentElement.appendChild(delContainer);
-        }
-        delContainer.innerHTML = '';
-        for (const [key, val] of Object.entries(d)) {
-            if (val.custom) {
-                const tag = document.createElement('span');
-                tag.className = 'inline-flex items-center bg-br-50 border border-br-200 text-br-700 text-xs px-2 py-0.5 rounded-full';
-                tag.innerHTML = `${esc(val.name)} <button onclick="deleteBundle('${esc(key)}')" class="ml-1 text-red-400 hover:text-red-600 font-bold">&times;</button>`;
-                delContainer.appendChild(tag);
-            }
-        }
+        renderBundleGrid();
         categoriesLoaded = true;
+        // Auto-select first if none selected
+        if (!sel.value && sel.options.length) {
+            sel.value = sel.options[0].value;
+            selectBundle(sel.value);
+        }
         showBundlePreview();
     } catch(e) {
         console.error('Categories error:', e);
     }
+}
+
+function renderBundleGrid(filter) {
+    const grid = document.getElementById('bundle-grid');
+    if (!grid) return;
+    const sel = document.getElementById('category_key');
+    const selectedKey = sel.value;
+    const q = (filter || '').toLowerCase();
+
+    // Group bundles
+    const groups = { 'Custom Bundles': [], 'German (DE)': [], 'English (EN)': [] };
+    for (const [key, val] of Object.entries(categoriesData)) {
+        const label = val.name + ' ' + key;
+        if (q && !label.toLowerCase().includes(q)) continue;
+        if (val.custom) { groups['Custom Bundles'].push({key, ...val}); }
+        else if (key.endsWith('_en')) { groups['English (EN)'].push({key, ...val}); }
+        else { groups['German (DE)'].push({key, ...val}); }
+    }
+
+    let html = '';
+    for (const [groupName, items] of Object.entries(groups)) {
+        if (!items.length) continue;
+        html += `<div class="px-3 py-1.5 bg-gray-100 border-b border-gray-200 sticky top-0 z-10">
+            <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">${esc(groupName)}</span>
+        </div>`;
+        for (const b of items) {
+            const isSelected = b.key === selectedKey;
+            const activeCls = isSelected ? 'bg-br-50 border-l-2 border-l-br-500' : 'hover:bg-gray-50';
+            const deleteBtn = b.custom ? `<button onclick="event.stopPropagation();deleteBundle('${esc(b.key)}')" class="ml-auto text-red-400 hover:text-red-600 text-sm font-bold px-1" title="Delete">&times;</button>` : '';
+            html += `<div class="flex items-center px-3 py-2 cursor-pointer border-b border-gray-100 ${activeCls} transition" onclick="selectBundle('${esc(b.key)}')">
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-800 truncate">${esc(b.name)}</div>
+                    <div class="text-xs text-gray-400">${b.query_count} term${b.query_count !== 1 ? 's' : ''}</div>
+                </div>
+                ${deleteBtn}
+            </div>`;
+        }
+    }
+    if (!html) html = '<div class="px-3 py-4 text-sm text-gray-400 text-center">No bundles match your search</div>';
+    grid.innerHTML = html;
+}
+
+function selectBundle(key) {
+    const sel = document.getElementById('category_key');
+    sel.value = key;
+    renderBundleGrid(document.getElementById('bundle-search')?.value || '');
+    showBundlePreview();
+}
+
+function filterBundles() {
+    const q = document.getElementById('bundle-search')?.value || '';
+    renderBundleGrid(q);
 }
 
 function showBundlePreview() {
@@ -808,7 +858,7 @@ async function saveBundle() {
         categoriesLoaded = false;
         await loadCategories(true);
         // Select the new bundle
-        document.getElementById('category_key').value = d.key;
+        selectBundle(d.key);
     } catch(e) {
         errEl.textContent = e.message;
         errEl.classList.remove('hidden');

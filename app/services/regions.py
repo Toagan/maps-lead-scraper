@@ -184,7 +184,7 @@ def get_city_scrape_config(population: int) -> tuple[int, int]:
     multiple grid points provide coverage.  Single-point cities also get
     6 pages since there's only one search origin.
     """
-    if population >= 500_000:
+    if population >= 400_000:
         # Large grid cities: deep pagination to avoid saturation in dense areas
         return (16, 6)
     elif population >= 100_000:
