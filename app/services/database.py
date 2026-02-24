@@ -49,11 +49,28 @@ def get_client() -> Client | None:
 # ---------------------------------------------------------------------------
 
 def get_existing_place_ids(country: str) -> set[str]:
+    """Fetch all place_ids for a country, paginating past Supabase's 1000-row default."""
     if not _client:
         return set()
     try:
-        rows = _client.table(LEADS_TABLE).select("place_id").eq("country", country).execute()
-        return {r["place_id"] for r in rows.data if r.get("place_id")}
+        ids: set[str] = set()
+        page_size = 10000
+        offset = 0
+        while True:
+            rows = (
+                _client.table(LEADS_TABLE)
+                .select("place_id")
+                .eq("country", country)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            for r in rows.data:
+                if r.get("place_id"):
+                    ids.add(r["place_id"])
+            if len(rows.data) < page_size:
+                break
+            offset += page_size
+        return ids
     except Exception as exc:
         logger.error("Error fetching place_ids: %s", exc)
         return set()
@@ -207,10 +224,16 @@ def get_stats() -> dict:
 
         # Per-country counts — discover countries from jobs table
         by_country = {}
-        job_countries = set()
+        job_countries: set[str] = set()
         try:
             jobs = _client.table(JOBS_TABLE).select("country").limit(500).execute()
-            job_countries = set(r["country"] for r in (jobs.data or []) if r.get("country"))
+            for r in (jobs.data or []):
+                raw = r.get("country", "")
+                # Multi-country jobs store "DE,AT,CH" — split into individual codes
+                for part in raw.split(","):
+                    part = part.strip().lower()
+                    if part:
+                        job_countries.add(part)
         except Exception:
             pass
         for cc in sorted({"de", "at", "ch"} | job_countries):

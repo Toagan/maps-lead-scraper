@@ -178,15 +178,11 @@ async def run_job(
         started_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # Load existing place_ids for all countries in this job
+    # Job-local seen set: dedup within this job only
     seen_countries = {c.country or country for c in cities}
-    db_existing_ids: set[str] = set()
-    for cc in seen_countries:
-        db_existing_ids.update(db.get_existing_place_ids(cc))
-    # Job-local seen set: prevents processing the same result twice within this job
     seen_ids: set[str] = set()
-    logger.info("Job %s: loaded %d existing place_ids, %d queries, %d cities",
-                job_id, len(db_existing_ids), len(search_queries), len(cities))
+    logger.info("Job %s: %d queries, %d cities",
+                job_id, len(search_queries), len(cities))
 
     total_leads = 0
     total_dupes = 0
@@ -287,12 +283,8 @@ async def run_job(
                                 continue
 
                             seen_ids.add(pid)
-                            is_existing = pid in db_existing_ids
-                            if is_existing:
-                                total_dupes += 1
-                            else:
-                                new_on_page += 1
-                                total_leads += 1
+                            new_on_page += 1
+                            total_leads += 1
 
                             # Category relevance scoring
                             relevance = compute_category_relevance(
