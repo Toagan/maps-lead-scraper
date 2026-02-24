@@ -276,10 +276,17 @@
                     <p class="text-xs text-gray-400 mt-1">Max API calls for this job. 1 credit = 1 Google Maps API call. Leave empty for no limit.</p>
                 </div>
                 <div class="flex items-start p-3 border border-gray-200 rounded-lg">
-                    <input type="checkbox" id="enrich_emails" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500 rounded">
+                    <input type="checkbox" id="enrich_emails" onchange="toggleSerpDiscovery()" class="mt-0.5 mr-3 text-br-600 focus:ring-br-500 rounded">
                     <div>
                         <label for="enrich_emails" class="text-sm font-medium text-gray-700 cursor-pointer">Enrich with emails</label>
                         <p class="text-xs text-gray-400 mt-0.5">Visits each business's website to find email addresses. Makes the scrape significantly slower.</p>
+                    </div>
+                </div>
+                <div class="flex items-start p-3 border border-gray-200 rounded-lg" id="serp-discovery-group">
+                    <input type="checkbox" id="serp_discovery" disabled class="mt-0.5 mr-3 text-br-600 focus:ring-br-500 rounded">
+                    <div>
+                        <label for="serp_discovery" class="text-sm font-medium text-gray-700 cursor-pointer">Deep email discovery</label>
+                        <p class="text-xs text-gray-400 mt-0.5">For leads with no website, searches Google to find their website, then extracts emails. Uses 1 extra API credit per lead. Best combined with email enrichment.</p>
                     </div>
                 </div>
                 </div><!-- end wizard-step-3 -->
@@ -435,6 +442,20 @@
         </div>
     </div>
 
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div class="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-sm mx-4">
+            <div class="px-5 py-4">
+                <h3 class="text-base font-semibold text-gray-900" id="confirm-title">Are you sure?</h3>
+                <p class="text-sm text-gray-500 mt-2" id="confirm-message"></p>
+            </div>
+            <div class="px-5 py-4 border-t border-gray-200 flex justify-end space-x-2">
+                <button onclick="confirmModalResolve(false)" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition">Cancel</button>
+                <button id="confirm-action-btn" onclick="confirmModalResolve(true)" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition shadow-sm">Delete</button>
+            </div>
+        </div>
+    </div>
+
 <script>
 // ---- State ----
 let currentTab = 'scrape';
@@ -468,6 +489,13 @@ function showWizardStep(step) {
 function wizardNext() { if (wizardStep < 4) showWizardStep(wizardStep + 1); }
 function wizardBack() { if (wizardStep > 1) showWizardStep(wizardStep - 1); }
 function goToStep(step) { showWizardStep(step); }
+
+function toggleSerpDiscovery() {
+    const enrichChecked = document.getElementById('enrich_emails').checked;
+    const serpCb = document.getElementById('serp_discovery');
+    serpCb.disabled = !enrichChecked;
+    if (!enrichChecked) serpCb.checked = false;
+}
 
 function updateScrapeHelp() {
     const helps = {
@@ -506,6 +534,7 @@ function buildWizardSummary() {
     const jobName = esc(document.getElementById('job_name').value.trim()) || '<span class="text-gray-400">Auto-generated</span>';
     const creditLimit = document.getElementById('credit_limit').value ? esc(document.getElementById('credit_limit').value + ' credits') : 'Unlimited';
     const enrichEmails = document.getElementById('enrich_emails').checked ? 'Yes' : 'No';
+    const serpDiscovery = document.getElementById('serp_discovery').checked ? 'Yes' : 'No';
     const rows = [
         ['Search', searchText],
         ['Location', locationText],
@@ -513,6 +542,7 @@ function buildWizardSummary() {
         ['Job Name', jobName],
         ['Credit Limit', creditLimit],
         ['Email Enrichment', enrichEmails],
+        ['Deep Email Discovery', serpDiscovery],
     ];
     document.getElementById('wizard-summary').innerHTML =
         '<div class="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200">' +
@@ -786,7 +816,7 @@ async function importFromChatGPT() {
 }
 
 async function deleteBundle(key) {
-    if (!confirm('Delete this custom bundle?')) return;
+    if (!await showConfirm('Delete this custom bundle?')) return;
     try {
         const r = await fetch('/categories/' + key, {method: 'DELETE'});
         if (!r.ok) { const d = await r.json(); alert(d.detail || 'Failed to delete'); return; }
@@ -909,6 +939,7 @@ function buildScrapeBody() {
         targeting_mode: isWW ? 'country' : document.getElementById('targeting_mode').value,
         scrape_mode: document.getElementById('scrape_mode').value,
         enrich_emails: document.getElementById('enrich_emails').checked,
+        serp_discovery: document.getElementById('serp_discovery').checked,
         credit_limit: creditLimit ? parseInt(creditLimit) : null,
         job_name: jobName || null,
     };
@@ -1092,7 +1123,7 @@ function toggleSelectAllJobs() {
 async function deleteSelectedJobs() {
     const count = selectedJobIds.size;
     if (!count) return;
-    if (!confirm(`Delete ${count} selected job(s) and all their leads? This cannot be undone.`)) return;
+    if (!await showConfirm(`Delete ${count} selected job(s) and all their leads? This cannot be undone.`)) return;
     const ids = [...selectedJobIds];
     for (const id of ids) {
         try { await fetch(`/jobs/${id}`, { method: 'DELETE' }); } catch(e) { console.error('Delete error:', e); }
@@ -1117,9 +1148,9 @@ async function loadJobs() {
         updateBulkToolbar();
 
         tbody.innerHTML = jobs.map(j => {
-            const pct = j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0;
             const isActive = ['running','pending','cancelling'].includes(j.status);
             const isFinished = !isActive;
+            const pct = isFinished ? 100 : (j.total_locations > 0 ? Math.round(j.processed_locations / j.total_locations * 100) : 0);
             const created = relativeTime(j.created_at);
             const cancelBtn = (j.status === 'running' || j.status === 'pending')
                 ? `<button onclick="cancelJob('${j.id}')" class="text-red-600 hover:text-red-800 text-xs font-medium">Cancel</button>`
@@ -1138,9 +1169,23 @@ async function loadJobs() {
             const rowClasses = [];
             if (isActive) rowClasses.push('job-row-active');
             if (isFinished && (j.total_leads || 0) === 0) rowClasses.push('job-row-dim');
+            const queries = (j.targeting_config && j.targeting_config.search_queries) || [];
+            const queryCount = queries.length;
+            let searchCell;
+            if (queryCount <= 1) {
+                searchCell = `<span class="font-medium">${esc(j.job_name || j.search_term)}</span>`;
+            } else {
+                const label = esc(j.job_name || j.search_term);
+                const termsList = queries.map(q => `<li class="py-0.5">${esc(q)}</li>`).join('');
+                searchCell = `<div>
+                    <span class="font-medium">${label}</span>
+                    <button onclick="this.nextElementSibling.classList.toggle('hidden');this.querySelector('span').textContent=this.nextElementSibling.classList.contains('hidden')?'▸':'▾'" class="ml-1.5 text-xs text-br-600 hover:text-br-700 font-medium">${queryCount} terms <span>▸</span></button>
+                    <ul class="hidden mt-1 text-xs text-gray-500 list-disc pl-4 max-h-40 overflow-y-auto">${termsList}</ul>
+                </div>`;
+            }
             return `<tr class="${rowClasses.join(' ')} hover:bg-gray-50">
                 <td class="px-2 py-3 text-center">${checkbox}</td>
-                <td class="px-4 py-3 font-medium">${esc(j.job_name || j.search_term)}</td>
+                <td class="px-4 py-3">${searchCell}</td>
                 <td class="px-4 py-3">${(j.country||'').toUpperCase()}</td>
                 <td class="px-4 py-3"><span class="badge badge-${j.status}">${statusDot}${humanizeStatus(j.status)}</span></td>
                 <td class="px-4 py-3">
@@ -1192,7 +1237,7 @@ async function cancelJob(id) {
 }
 
 async function deleteJob(id) {
-    if (!confirm('Delete this job and all its leads? This cannot be undone.')) return;
+    if (!await showConfirm('Delete this job and all its leads? This cannot be undone.')) return;
     try {
         const r = await fetch(`/jobs/${id}`, { method: 'DELETE' });
         if (r.ok) {
@@ -1342,6 +1387,19 @@ function confirmCategoryDownload() {
     if (fname) p.set('filename', fname);
     window.open('/leads?' + p.toString(), '_blank');
     closeCategoryModal();
+}
+
+// ---- Confirm Modal ----
+let _confirmResolve = null;
+function showConfirm(message, actionLabel = 'Delete') {
+    document.getElementById('confirm-message').textContent = message;
+    document.getElementById('confirm-action-btn').textContent = actionLabel;
+    document.getElementById('confirm-modal').classList.remove('hidden');
+    return new Promise(resolve => { _confirmResolve = resolve; });
+}
+function confirmModalResolve(value) {
+    document.getElementById('confirm-modal').classList.add('hidden');
+    if (_confirmResolve) { _confirmResolve(value); _confirmResolve = null; }
 }
 
 // ---- Helpers ----

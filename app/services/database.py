@@ -122,6 +122,30 @@ def update_lead_email(place_id: str, email: str, source: str) -> bool:
         return False
 
 
+def update_lead_serp(
+    place_id: str,
+    website_serp: str,
+    email_serp: str | None = None,
+    email_serp_source: str | None = None,
+) -> bool:
+    if not _client:
+        return False
+    try:
+        fields: dict = {
+            "website_serp": website_serp,
+            "enriched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if email_serp:
+            fields["email_serp"] = email_serp
+        if email_serp_source:
+            fields["email_serp_source"] = email_serp_source
+        _client.table(LEADS_TABLE).update(fields).eq("place_id", place_id).execute()
+        return True
+    except Exception as exc:
+        logger.error("Error updating lead SERP data: %s", exc)
+        return False
+
+
 def get_job_categories(job_id: str) -> list[dict]:
     """Return distinct category values with counts for a given job."""
     if not _client:

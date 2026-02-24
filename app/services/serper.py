@@ -16,6 +16,7 @@ _rate_limiter = TokenBucket(rate=settings.serper_max_rps)
 _semaphore = asyncio.Semaphore(settings.serper_max_concurrent)
 
 SERPER_URL = "https://google.serper.dev/maps"
+SERPER_SEARCH_URL = "https://google.serper.dev/search"
 
 
 async def search_maps(
@@ -73,6 +74,58 @@ async def search_maps(
                 if attempt < 2:
                     await asyncio.sleep(1)
     return None
+
+
+async def search_web(
+    query: str,
+    gl: str,
+    hl: str,
+    num: int = 3,
+) -> list[dict]:
+    """
+    Call Serper /search endpoint for organic web results.
+
+    Returns a list of {title, link, snippet} dicts.
+    Costs 1 credit per call.
+    """
+    payload = {
+        "q": query,
+        "gl": gl,
+        "hl": hl,
+        "num": num,
+    }
+    headers = {
+        "X-API-KEY": settings.serper_api_key,
+        "Content-Type": "application/json",
+    }
+
+    async with _semaphore:
+        await _rate_limiter.acquire()
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        SERPER_SEARCH_URL,
+                        json=payload,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return data.get("organic", [])
+                        if resp.status == 429:
+                            wait = 2 ** attempt
+                            logger.warning("Serper search 429 — retrying in %ss", wait)
+                            await asyncio.sleep(wait)
+                            continue
+                        body = await resp.text()
+                        logger.error("Serper search %s: %s", resp.status, body[:200])
+                        return []
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                logger.warning("Serper search error (attempt %d): %s", attempt + 1, exc)
+                if attempt < 2:
+                    await asyncio.sleep(1)
+    return []
 
 
 def compute_category_relevance(search_term: str, category: str, categories_str: str) -> float:

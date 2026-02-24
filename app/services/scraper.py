@@ -144,6 +144,7 @@ async def run_job(
     country: str,
     cities: List[City],
     enrich_emails: bool = False,
+    serp_discovery: bool = False,
     scrape_mode: str = "smart",
     credit_limit: int | None = None,
 ) -> None:
@@ -396,6 +397,15 @@ async def run_job(
                     break
                 enriched += await enrich_leads(cc, job_id, cancel_event)
 
+        # SERP discovery pass: find websites for leads with no website, then extract emails
+        serp_enriched = 0
+        if serp_discovery and not cancel_event.is_set():
+            from app.services.enricher import discover_and_enrich
+            for cc in seen_countries:
+                if cancel_event.is_set():
+                    break
+                serp_enriched += await discover_and_enrich(cc, job_id, cancel_event)
+
         # Mark completed
         if not cancel_event.is_set():
             status = "completed"
@@ -410,12 +420,13 @@ async def run_job(
             total_duplicates=total_dupes,
             total_api_calls=total_api_calls,
             total_enriched=enriched,
+            total_serp_enriched=serp_enriched,
             saturated_points=saturated_points,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
-        logger.info("Job %s %s: %d leads, %d dupes, %d API calls, %d saturated, %d closed skipped",
+        logger.info("Job %s %s: %d leads, %d dupes, %d API calls, %d saturated, %d closed skipped, %d serp enriched",
                      job_id, status, total_leads, total_dupes, total_api_calls,
-                     saturated_points, total_closed_skipped)
+                     saturated_points, total_closed_skipped, serp_enriched)
 
     except Exception as exc:
         logger.exception("Job %s failed: %s", job_id, exc)

@@ -16,6 +16,7 @@ class ScrapeRequest(BaseModel):
     center_lng: Optional[float] = None
     radius_km: Optional[float] = None
     enrich_emails: bool = False
+    serp_discovery: bool = False  # search Google for website when Maps has none
     scrape_mode: str = "smart"  # quick | smart | thorough | max
     credit_limit: Optional[int] = None  # max credits to spend; None = unlimited
 

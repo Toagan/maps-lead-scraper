@@ -292,6 +292,7 @@ async def start_scrape(req: ScrapeRequest):
         "scrape_mode": req.scrape_mode,
         "category_key": req.category_key,
         "countries": country_list,
+        "search_queries": search_queries,
     }
     job_id = db.create_job(
         search_term=display_name,
@@ -314,6 +315,7 @@ async def start_scrape(req: ScrapeRequest):
             country=country_list[0],
             cities=all_cities,
             enrich_emails=req.enrich_emails,
+            serp_discovery=req.serp_discovery,
             scrape_mode=req.scrape_mode,
             credit_limit=req.credit_limit,
         )
