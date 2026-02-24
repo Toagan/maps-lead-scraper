@@ -144,13 +144,15 @@
                             <input type="text" id="bundle-search" placeholder="Search bundles..." oninput="filterBundles()" class="w-full border border-gray-300 rounded-lg px-3 py-2 pl-8 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                             <svg class="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                         </div>
-                        <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-br-100 transition">+ Create</button>
-                        <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition">AI Generate</button>
+                        <button type="button" onclick="toggleBundleBuilder()" class="whitespace-nowrap bg-br-50 text-br-700 border border-br-200 px-2.5 py-2 rounded-lg text-xs font-medium hover:bg-br-100 transition">+ Create</button>
+                        <button type="button" onclick="togglePromptGenerator()" class="whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-2 rounded-lg text-xs font-medium hover:bg-amber-100 transition">AI Prompt</button>
                     </div>
-                    <!-- Bundle grid -->
-                    <div id="bundle-grid" class="border border-gray-200 rounded-lg max-h-72 overflow-y-auto"></div>
-                    <!-- Preview of selected bundle terms -->
-                    <div id="bundle-preview" class="hidden mt-2 border border-gray-200 rounded-lg px-3 py-2.5 bg-gray-50 max-h-40 overflow-y-auto"></div>
+                    <!-- Bundle grid + inline preview -->
+                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                        <div id="bundle-grid" class="max-h-52 overflow-y-auto"></div>
+                        <div id="bundle-preview" class="hidden border-t border-gray-200 px-3 py-2.5 bg-gray-50 max-h-28 overflow-y-auto">
+                        </div>
+                    </div>
                     <p class="text-xs text-gray-400 mt-1">A bundle searches multiple related terms in one job for broader coverage</p>
                     <!-- Bundle Builder -->
                     <div id="bundle-builder" class="hidden mt-3 border border-br-200 rounded-lg p-4 bg-br-50 space-y-3">
