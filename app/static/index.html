@@ -220,40 +220,7 @@
                             <div id="bb-error" class="hidden text-sm text-red-600"></div>
                         </div>
                     </div>
-                    <!-- ChatGPT Prompt Generator -->
-                    <div id="prompt-generator" class="hidden mt-3 border border-amber-200 rounded-lg p-4 bg-amber-50 space-y-3">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-semibold text-amber-900">Generate ChatGPT Prompt</span>
-                            <button type="button" onclick="togglePromptGenerator()" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
-                        </div>
-                        <p class="text-xs text-amber-700">Enter your niche below, copy the generated prompt, paste it into ChatGPT, then paste the JSON output back here to create a bundle.</p>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Niche / Industry</label>
-                                <input type="text" id="pg-niche" placeholder="e.g. dentists, plumbers, accountants" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Language</label>
-                                <select id="pg-language" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white">
-                                    <option value="German">German</option>
-                                    <option value="English">English</option>
-                                    <option value="French">French</option>
-                                    <option value="Italian">Italian</option>
-                                    <option value="Spanish">Spanish</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button type="button" onclick="generatePrompt()" class="w-full bg-amber-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition">Generate Prompt</button>
-                        <div id="pg-output" class="hidden space-y-2">
-                            <textarea id="pg-prompt-text" readonly rows="8" class="w-full border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono bg-white text-gray-800 resize-none focus:outline-none"></textarea>
-                            <button type="button" onclick="copyPrompt()" id="pg-copy-btn" class="w-full bg-amber-100 text-amber-800 border border-amber-300 py-1.5 rounded-lg text-sm font-medium hover:bg-amber-200 transition">Copy to Clipboard</button>
-                            <div class="border-t border-amber-200 pt-2 mt-2">
-                                <label class="block text-xs text-gray-500 mb-1">Paste ChatGPT output here (JSON array)</label>
-                                <textarea id="pg-paste" rows="4" placeholder='["term 1", "term 2", "term 3", ...]' class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none"></textarea>
-                                <button type="button" onclick="importFromChatGPT()" class="w-full mt-2 bg-green-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">Import Terms & Create Bundle</button>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- ChatGPT Prompt Generator is now a modal (see #prompt-modal below) -->
                 </div>
                 </div><!-- end wizard-step-1 -->
                 <!-- Step 2: Where to search -->
@@ -484,6 +451,69 @@
         </div>
 
     </main>
+
+    <!-- ChatGPT Prompt Modal -->
+    <div id="prompt-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div class="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-semibold text-br-950">Generate Terms with ChatGPT</h3>
+                <button onclick="closePromptModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div class="px-5 py-4 space-y-4 overflow-y-auto">
+                <!-- Step 1: Generate -->
+                <div>
+                    <div class="flex items-center space-x-2 mb-2">
+                        <span class="w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">1</span>
+                        <span class="text-sm font-medium text-gray-900">Enter your niche & generate a prompt</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 ml-7">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Niche / Industry</label>
+                            <input type="text" id="pg-niche" placeholder="e.g. dentists, plumbers" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Language</label>
+                            <select id="pg-language" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none">
+                                <option value="German">German</option>
+                                <option value="English">English</option>
+                                <option value="French">French</option>
+                                <option value="Italian">Italian</option>
+                                <option value="Spanish">Spanish</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="ml-7 mt-2">
+                        <button type="button" onclick="generatePrompt()" class="w-full bg-amber-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-600 transition">Generate Prompt</button>
+                    </div>
+                </div>
+                <!-- Step 2: Copy (hidden until generated) -->
+                <div id="pg-step2" class="hidden">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <span class="w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">2</span>
+                        <span class="text-sm font-medium text-gray-900">Copy this prompt & paste it into ChatGPT</span>
+                    </div>
+                    <div class="ml-7">
+                        <textarea id="pg-prompt-text" readonly rows="5" class="w-full border border-amber-200 rounded-lg px-3 py-2 text-xs font-mono bg-amber-50 text-gray-700 resize-none focus:outline-none"></textarea>
+                        <button type="button" onclick="copyPrompt()" id="pg-copy-btn" class="w-full mt-1 bg-amber-100 text-amber-800 border border-amber-300 py-1.5 rounded-lg text-sm font-medium hover:bg-amber-200 transition">Copy to Clipboard</button>
+                    </div>
+                </div>
+                <!-- Step 3: Paste back (hidden until generated) -->
+                <div id="pg-step3" class="hidden">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <span class="w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">3</span>
+                        <span class="text-sm font-medium text-gray-900">Paste ChatGPT's response back here</span>
+                    </div>
+                    <div class="ml-7">
+                        <textarea id="pg-paste" rows="4" placeholder='Paste the JSON array here, e.g. ["term 1", "term 2", ...]' class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div id="pg-footer" class="hidden px-5 py-4 border-t border-gray-200 flex justify-end space-x-2">
+                <button onclick="closePromptModal()" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+                <button onclick="importFromChatGPT()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition shadow-sm">Import & Create Bundle</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Category Picker Modal -->
     <div id="category-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -775,12 +805,14 @@ async function saveBundle() {
 
 // ---- ChatGPT Prompt Generator ----
 function togglePromptGenerator() {
-    const el = document.getElementById('prompt-generator');
-    el.classList.toggle('hidden');
-    // Close bundle builder if open
-    if (!el.classList.contains('hidden')) {
-        document.getElementById('bundle-builder').classList.add('hidden');
-    }
+    document.getElementById('prompt-modal').classList.remove('hidden');
+    // Reset steps 2 & 3 visibility
+    document.getElementById('pg-step2').classList.add('hidden');
+    document.getElementById('pg-step3').classList.add('hidden');
+    document.getElementById('pg-footer').classList.add('hidden');
+}
+function closePromptModal() {
+    document.getElementById('prompt-modal').classList.add('hidden');
 }
 
 function generatePrompt() {
@@ -808,7 +840,9 @@ Example format:
 ["term 1", "term 2", "term 3"]`;
 
     document.getElementById('pg-prompt-text').value = prompt;
-    document.getElementById('pg-output').classList.remove('hidden');
+    document.getElementById('pg-step2').classList.remove('hidden');
+    document.getElementById('pg-step3').classList.remove('hidden');
+    document.getElementById('pg-footer').classList.remove('hidden');
 }
 
 function copyPrompt() {
@@ -842,8 +876,8 @@ async function importFromChatGPT() {
 
     if (terms.length === 0) { alert('No terms found in the pasted output'); return; }
 
-    // Switch to bundle builder and populate
-    document.getElementById('prompt-generator').classList.add('hidden');
+    // Close modal and switch to bundle builder
+    closePromptModal();
     document.getElementById('bundle-builder').classList.remove('hidden');
     bundleTerms = terms;
     renderBundleTerms();
