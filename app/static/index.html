@@ -287,7 +287,10 @@
                     <p class="text-sm text-gray-500">Configure coverage depth, limits, and enrichment.</p>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Coverage Depth</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-gray-700">Coverage Depth</label>
+                        <button type="button" onclick="document.getElementById('coverage-mode-help').classList.toggle('hidden');this.querySelector('span').textContent=document.getElementById('coverage-mode-help').classList.contains('hidden')?'\u25b8':'\u25be'" class="text-xs text-br-600 hover:text-br-700 font-medium">Which should I use? <span>&#9656;</span></button>
+                    </div>
                     <select id="scrape_mode" onchange="updateScrapeHelp()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500 outline-none">
                         <option value="quick" data-dach="Quick (cities 50k+)" data-ww="Quick (cities 15k+)">Quick (cities 50k+)</option>
                         <option value="smart" selected data-dach="Smart (cities 10k+)" data-ww="Smart (cities 5k+)">Smart (cities 10k+)</option>
@@ -295,6 +298,13 @@
                         <option value="max" data-dach="Max (all locations)" data-ww="Max (cities 1k+)">Max (all locations)</option>
                     </select>
                     <p id="scrape-mode-help" class="text-xs text-gray-400 mt-1">Recommended. Covers mid-size cities and up. Good balance of coverage and credits.</p>
+                    <div id="coverage-mode-help" class="hidden mt-2 bg-br-50 border border-br-200 rounded-lg p-3 text-xs text-gray-600 space-y-2">
+                        <div><span class="font-semibold text-gray-800">Quick</span> — Only major cities (50k+). Fast and cheap. Best for <strong>testing a new search term</strong> before committing to a full run.</div>
+                        <div><span class="font-semibold text-gray-800">Smart</span> <span class="text-br-600 font-medium">(recommended)</span> — Cities with 10k+ population. Covers 95%+ of businesses for common categories like dentists, restaurants, or lawyers. Best balance of <strong>coverage vs cost</strong>. Most businesses in smaller towns also appear in nearby city results.</div>
+                        <div><span class="font-semibold text-gray-800">Thorough</span> — Down to 5k population. Finds businesses in smaller towns that Smart might miss. Use for <strong>niche/rare business types</strong> (e.g. specialty clinics, niche manufacturers) where every lead matters.</div>
+                        <div><span class="font-semibold text-gray-800">Max</span> — Every known location including villages. Very high credit usage with heavy duplication. Only use for <strong>hyper-local or rare business types</strong> where you need absolute completeness in rural areas. For common categories, Smart finds nearly the same leads at 1/20th the cost.</div>
+                        <div class="border-t border-br-200 pt-2 mt-1"><span class="font-semibold text-gray-800">Rule of thumb:</span> If Google Maps returns 50+ results for your search term in a mid-size city, use <strong>Smart</strong>. If it returns fewer than 10, consider <strong>Thorough</strong> or <strong>Max</strong>.</div>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Job Name <span class="font-normal text-gray-400">(optional)</span></label>
@@ -625,10 +635,10 @@ function toggleSerpDiscovery() {
 
 function updateScrapeHelp() {
     const helps = {
-        quick: 'Fastest and cheapest. Only searches major cities. Good for testing a new search term.',
-        smart: 'Recommended. Covers mid-size cities and up. Good balance of coverage and credits.',
-        thorough: 'High coverage. Includes smaller towns. Uses significantly more credits.',
-        max: 'Maximum possible coverage. Searches every known location. Highest credit usage.'
+        quick: 'Test mode — major cities only. ~50-200 API calls for DACH.',
+        smart: 'Recommended for most searches. ~5k API calls for DACH. Finds 95%+ of businesses.',
+        thorough: 'For niche/rare business types. ~15k API calls for DACH. Diminishing returns for common categories.',
+        max: 'Every village included. ~85k API calls for DACH. High duplication — use only for rare business types.'
     };
     const el = document.getElementById('scrape-mode-help');
     if (el) el.textContent = helps[document.getElementById('scrape_mode').value] || '';
