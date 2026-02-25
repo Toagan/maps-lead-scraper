@@ -17,9 +17,31 @@ from app.api.router import api_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_supabase()
+    _recover_orphaned_jobs()
     yield
     await close_session()
     close_supabase()
+
+
+def _recover_orphaned_jobs():
+    """On startup, mark any 'running'/'pending'/'cancelling' jobs as cancelled.
+    These are leftovers from a previous server instance that died."""
+    from app.services import database as db
+    from datetime import datetime, timezone
+    try:
+        jobs = db.list_jobs(limit=100)
+        for j in jobs:
+            if j.get("status") in ("running", "pending", "cancelling"):
+                logging.getLogger(__name__).warning(
+                    "Recovering orphaned job %s (was %s)", j["id"], j["status"])
+                db.update_job(
+                    j["id"],
+                    status="cancelled",
+                    error_message="Server restarted while job was running",
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                )
+    except Exception as exc:
+        logging.getLogger(__name__).error("Failed to recover orphaned jobs: %s", exc)
 
 
 app = FastAPI(title="Maps Lead Scraper", version="2.0.0", lifespan=lifespan)

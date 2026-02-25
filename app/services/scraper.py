@@ -515,7 +515,8 @@ async def run_job(
                      job_id, status, total_leads, total_dupes, total_api_calls,
                      saturated_points, total_closed_skipped, serp_enriched)
 
-    except Exception as exc:
+    except BaseException as exc:
+        # BaseException catches Exception, CancelledError, KeyboardInterrupt, SystemExit
         logger.exception("Job %s failed: %s", job_id, exc)
         # Flush any remaining leads even on failure
         if leads_buffer:
@@ -528,10 +529,24 @@ async def run_job(
                 db.update_job,
                 job_id,
                 status="failed",
-                error_message=str(exc),
+                error_message=str(exc)[:500],
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
         except Exception:
             logger.error("Job %s: could not update status to failed", job_id)
     finally:
         _running_jobs.pop(job_id, None)
+        # Safety net: if job is still marked "running" in DB, force it to "failed"
+        try:
+            job = await asyncio.to_thread(db.get_job, job_id)
+            if job and job.get("status") in ("running", "pending"):
+                logger.warning("Job %s: safety net — forcing status to failed", job_id)
+                await asyncio.to_thread(
+                    db.update_job,
+                    job_id,
+                    status="failed",
+                    error_message="Job terminated unexpectedly",
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                )
+        except Exception:
+            logger.error("Job %s: safety net DB update failed", job_id)
