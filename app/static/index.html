@@ -1282,7 +1282,10 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
     if (!body.country && !(body.countries && body.countries.length)) { alert('Select at least one country'); btn.disabled = false; btn.textContent = 'Start Scraping'; return; }
 
     try {
-        const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: controller.signal });
+        clearTimeout(timeout);
         const d = await r.json();
         resultDiv.classList.remove('hidden');
         if (r.ok) {
@@ -1296,7 +1299,7 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
     } catch(err) {
         resultDiv.classList.remove('hidden');
         resultDiv.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200';
-        resultDiv.textContent = 'Network error: ' + err.message;
+        resultDiv.textContent = err.name === 'AbortError' ? 'Request timed out — the server may be restarting. Please try again.' : 'Network error: ' + err.message;
     }
     btn.disabled = false;
     btn.textContent = 'Start Scraping';
