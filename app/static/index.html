@@ -1330,7 +1330,14 @@ function estimateETA(job) {
     const elapsed = Date.now() - new Date(job.created_at).getTime();
     if (elapsed < 5000 || job.processed_locations < 1) return '';
     const rate = job.processed_locations / elapsed;
-    const remaining = job.total_locations - job.processed_locations;
+    let remaining = job.total_locations - job.processed_locations;
+    // If credit limit set, cap remaining by how many grid points the budget allows
+    const cl = job.credit_limit || (job.targeting_config && job.targeting_config.credit_limit);
+    if (cl && job.total_api_calls) {
+        const callsLeft = Math.max(0, Math.floor(cl / 3) - job.total_api_calls);
+        remaining = Math.min(remaining, callsLeft);
+    }
+    if (remaining <= 0) return 'stopping...';
     const etaMs = remaining / rate;
     return '~' + formatDuration(etaMs) + ' left';
 }

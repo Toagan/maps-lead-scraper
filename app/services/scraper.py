@@ -352,12 +352,20 @@ async def run_job(
 
     try:
         # Process in batches to allow cancel_event to stop new work.
-        BATCH_SIZE = 40  # 2x semaphore so next batch is ready
+        # When a credit limit is set, cap batch size so we don't overshoot.
+        DEFAULT_BATCH_SIZE = 40
         desc_idx = 0
 
         while desc_idx < len(all_task_descs) and not cancel_event.is_set():
-            batch = all_task_descs[desc_idx:desc_idx + BATCH_SIZE]
-            desc_idx += BATCH_SIZE
+            # Dynamic batch size: if credit limit set, only launch as many
+            # coroutines as the remaining credit budget allows (1 API call each)
+            if credit_limit:
+                remaining_budget = max(1, (credit_limit // _CREDITS_PER_CALL) - total_api_calls)
+                batch_size = min(DEFAULT_BATCH_SIZE, remaining_budget)
+            else:
+                batch_size = DEFAULT_BATCH_SIZE
+            batch = all_task_descs[desc_idx:desc_idx + batch_size]
+            desc_idx += batch_size
 
             coros = [
                 _scrape_grid_point_with_meta(
