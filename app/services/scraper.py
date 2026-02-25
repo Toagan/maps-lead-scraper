@@ -170,6 +170,7 @@ async def _scrape_grid_point(
     local_api_calls = 0
     local_closed_skipped = 0
     last_page_count = 0
+    gp_pids: set[str] = set()  # Dedup within this grid point across all pages
 
     for page in range(max_pages):
         if cancel_event.is_set():
@@ -192,7 +193,6 @@ async def _scrape_grid_point(
         places = data["places"]
         last_page_count = len(places)
         new_on_page = 0
-        page_pids: set[str] = set()
 
         for place in places:
             if is_place_closed(place):
@@ -212,10 +212,11 @@ async def _scrape_grid_point(
             ):
                 continue
 
-            # Track new within this page for early-stop (use page-local set)
-            if pid not in page_pids:
-                new_on_page += 1
-                page_pids.add(pid)
+            # Dedup within this grid point (across pages)
+            if pid in gp_pids:
+                continue
+            gp_pids.add(pid)
+            new_on_page += 1
 
             records.append({
                 "pdata": pdata,
