@@ -25,9 +25,20 @@ logger = logging.getLogger(__name__)
 # In-memory registry of running jobs so we can cancel them
 _running_jobs: dict[str, asyncio.Event] = {}
 
+# Strong references to background tasks — prevents GC on Python < 3.12
+_background_tasks: set[asyncio.Task] = set()
+
 # Max distance (km) a result may be from the search point before we discard it.
 # Google Maps can return results well outside the visible area.
 _MAX_RESULT_DISTANCE_KM = 25.0
+
+
+def launch_job_task(coro) -> asyncio.Task:
+    """Create a background task with a strong reference to prevent GC."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 def is_job_running(job_id: str) -> bool:
@@ -514,8 +525,7 @@ async def run_job(
             total_leads=total_leads,
             total_duplicates=total_dupes,
             total_api_calls=total_api_calls,
-            total_enriched=enriched,
-            total_serp_enriched=serp_enriched,
+            total_enriched=enriched + serp_enriched,
             saturated_points=saturated_points,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )

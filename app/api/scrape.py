@@ -12,7 +12,7 @@ from app.geo.worldwide import is_worldwide
 from app.schemas.scrape import ScrapeRequest, ScrapeResponse
 from app.services import database as db
 from app.services.regions import resolve_cities
-from app.services.scraper import run_job, estimate_credits, preview_search
+from app.services.scraper import run_job, estimate_credits, preview_search, launch_job_task
 
 logger = logging.getLogger(__name__)
 
@@ -309,8 +309,8 @@ async def start_scrape(req: ScrapeRequest):
     # Credit estimate
     credit_info = estimate_credits(all_cities, search_queries)
 
-    # Launch background task
-    asyncio.create_task(
+    # Launch background task (strong ref prevents GC on Python < 3.12)
+    launch_job_task(
         run_job(
             job_id=job_id,
             search_queries=search_queries,

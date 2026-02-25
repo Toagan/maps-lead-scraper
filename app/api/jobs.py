@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.services import database as db
 from app.services.regions import resolve_cities
-from app.services.scraper import cancel_job, is_job_running, run_job
+from app.services.scraper import cancel_job, is_job_running, run_job, launch_job_task
 
 router = APIRouter()
 
@@ -74,7 +74,7 @@ async def resume(job_id: str):
     resume_offset = job.get("processed_locations", 0)
     credit_limit = tc.get("credit_limit")
 
-    asyncio.create_task(
+    launch_job_task(
         run_job(
             job_id=job_id,
             search_queries=search_queries,
