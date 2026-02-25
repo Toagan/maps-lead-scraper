@@ -15,6 +15,20 @@ logger = logging.getLogger(__name__)
 _rate_limiter = TokenBucket(rate=settings.serper_max_rps)
 _semaphore = asyncio.Semaphore(settings.serper_max_concurrent)
 
+# Runtime-overridable API key (falls back to env config)
+_runtime_api_key: str | None = None
+
+
+def get_serper_api_key() -> str:
+    """Return the active Serper API key (runtime override or env default)."""
+    return _runtime_api_key or settings.serper_api_key
+
+
+def set_serper_api_key(key: str | None) -> None:
+    """Override the Serper API key at runtime."""
+    global _runtime_api_key
+    _runtime_api_key = key or None
+
 SERPER_URL = "https://google.serper.dev/maps"
 SERPER_SEARCH_URL = "https://google.serper.dev/search"
 
@@ -61,7 +75,7 @@ async def search_maps(
         "start": start,
     }
     headers = {
-        "X-API-KEY": settings.serper_api_key,
+        "X-API-KEY": get_serper_api_key(),
         "Content-Type": "application/json",
     }
 
@@ -112,7 +126,7 @@ async def search_web(
         "num": num,
     }
     headers = {
-        "X-API-KEY": settings.serper_api_key,
+        "X-API-KEY": get_serper_api_key(),
         "Content-Type": "application/json",
     }
 

@@ -69,6 +69,7 @@
                 <div class="flex space-x-1">
                     <button onclick="showTab('scrape')" id="tab-scrape" class="px-4 py-4 text-sm font-medium text-br-200 hover:text-white tab-active">New Scrape</button>
                     <button onclick="showTab('jobs')" id="tab-jobs" class="px-4 py-4 text-sm font-medium text-br-200 hover:text-white">Jobs</button>
+                    <button onclick="showTab('settings')" id="tab-settings" class="px-4 py-4 text-sm font-medium text-br-200 hover:text-white">Settings</button>
                 </div>
             </div>
         </div>
@@ -351,6 +352,33 @@
                     <button type="button" id="wizard-next-btn" onclick="wizardNext()" class="px-6 py-2 bg-br-600 text-white rounded-lg text-sm font-medium hover:bg-br-700 transition shadow-sm">Next &rarr;</button>
                 </div>
             </form>
+        </div>
+
+        <!-- ==================== SETTINGS ==================== -->
+        <div id="view-settings" class="hidden">
+            <h2 class="text-xl font-semibold text-br-950 mb-4 max-w-2xl mx-auto">Settings</h2>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 max-w-2xl mx-auto space-y-6">
+                <!-- Serper API Key -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900 mb-1">Serper API Key</h3>
+                    <p class="text-xs text-gray-500 mb-3">Override the default Serper API key. Useful for rotating keys or using your own account.</p>
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-xs font-medium px-2 py-0.5 rounded-full" id="serper-key-badge">—</span>
+                        <span class="text-xs text-gray-400" id="serper-key-masked"></span>
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="password" id="serper-key-input" placeholder="Enter new Serper API key" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-br-500 focus:border-br-500">
+                        <button type="button" onclick="toggleKeyVisibility()" class="px-3 py-2 text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg text-sm">
+                            <svg id="eye-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                    </div>
+                    <div class="flex gap-2 mt-2">
+                        <button type="button" onclick="saveSerperKey()" class="px-4 py-2 bg-br-600 text-white rounded-lg text-sm font-medium hover:bg-br-700 transition">Save Key</button>
+                        <button type="button" onclick="resetSerperKey()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition">Reset to Default</button>
+                    </div>
+                    <div id="serper-key-msg" class="text-xs mt-2 hidden"></div>
+                </div>
+            </div>
         </div>
 
         <!-- ==================== JOBS ==================== -->
@@ -716,6 +744,7 @@ function showTab(tab) {
     currentTab = tab;
     if (tab === 'jobs') { loadJobs(); startJobPoll(); }
     if (tab === 'scrape') { loadCategories(); loadRegions(); showWizardStep(1); }
+    if (tab === 'settings') { loadSettings(); }
     if (tab !== 'jobs' && tab !== 'job-detail') stopJobPoll();
     if (tab !== 'job-detail') stopJobDetailPoll();
 }
@@ -2015,6 +2044,74 @@ function esc(s) {
 }
 function shortUrl(u) {
     try { return new URL(u).hostname; } catch { return u; }
+}
+
+// ---- Settings ----
+async function loadSettings() {
+    try {
+        const r = await fetch('/settings');
+        const d = await r.json();
+        const badge = document.getElementById('serper-key-badge');
+        const masked = document.getElementById('serper-key-masked');
+        if (d.has_serper_key) {
+            if (d.serper_api_key_source === 'custom') {
+                badge.textContent = 'Custom Key';
+                badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-800';
+            } else {
+                badge.textContent = 'Default (env)';
+                badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-800';
+            }
+            masked.textContent = d.serper_api_key_masked;
+        } else {
+            badge.textContent = 'Not configured';
+            badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-800';
+            masked.textContent = '';
+        }
+        document.getElementById('serper-key-input').value = '';
+        hideSerperMsg();
+    } catch(e) { console.error('Failed to load settings', e); }
+}
+
+function toggleKeyVisibility() {
+    const input = document.getElementById('serper-key-input');
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function showSerperMsg(text, isError) {
+    const el = document.getElementById('serper-key-msg');
+    el.textContent = text;
+    el.className = 'text-xs mt-2 ' + (isError ? 'text-red-600' : 'text-green-600');
+    el.classList.remove('hidden');
+}
+function hideSerperMsg() { document.getElementById('serper-key-msg').classList.add('hidden'); }
+
+async function saveSerperKey() {
+    const key = document.getElementById('serper-key-input').value.trim();
+    if (!key) { showSerperMsg('Please enter an API key', true); return; }
+    try {
+        const r = await fetch('/settings/serper-key', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({api_key: key})
+        });
+        if (r.ok) {
+            showSerperMsg('Serper API key updated. New scrapes will use this key.', false);
+            loadSettings();
+        } else {
+            const d = await r.json();
+            showSerperMsg(d.detail || 'Failed to save key', true);
+        }
+    } catch(e) { showSerperMsg('Network error', true); }
+}
+
+async function resetSerperKey() {
+    try {
+        const r = await fetch('/settings/serper-key', {method: 'DELETE'});
+        if (r.ok) {
+            showSerperMsg('Reset to default environment key.', false);
+            loadSettings();
+        }
+    } catch(e) { showSerperMsg('Network error', true); }
 }
 
 // ---- Init ----
