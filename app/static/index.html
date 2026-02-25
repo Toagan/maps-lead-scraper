@@ -364,7 +364,7 @@
                             <th class="px-4 py-3 text-left font-medium text-br-900">Progress</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Leads</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Dupes</th>
-                            <th class="px-4 py-3 text-left font-medium text-br-900">API Calls</th>
+                            <th class="px-4 py-3 text-left font-medium text-br-900">Credits</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Created</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900"></th>
                         </tr>
@@ -1453,9 +1453,14 @@ async function loadJobs() {
                 </td>
                 <td class="px-4 py-3">${j.total_leads || 0}</td>
                 <td class="px-4 py-3 text-gray-400">${j.total_duplicates || 0}</td>
-                <td class="px-4 py-3 text-gray-400">${j.total_api_calls || 0}${(() => {
+                <td class="px-4 py-3 text-gray-400">${(() => {
+                    const calls = j.total_api_calls || 0;
                     const cl = j.credit_limit || (j.targeting_config && j.targeting_config.credit_limit);
-                    return cl ? `<span class="text-xs text-gray-300"> / ${cl.toLocaleString()}</span>` : '';
+                    if (cl) {
+                        const used = calls * 3;
+                        return `${used} / ${cl} <span class="text-xs text-gray-300">credits</span>`;
+                    }
+                    return `${calls} <span class="text-xs text-gray-300">calls</span>`;
                 })()}</td>
                 <td class="px-4 py-3 text-xs text-gray-400" title="${j.created_at ? new Date(j.created_at).toLocaleString() : ''}">${created}</td>
                 <td class="px-4 py-3 space-x-2">${downloadBtn} ${resumeBtn} ${cancelBtn} ${deleteBtn}</td>
@@ -1671,7 +1676,7 @@ function renderJobDetailMeta(j) {
         { label: 'Progress', value: `<div class="w-full bg-gray-200 rounded-full h-2 mb-1"><div class="${isActive ? 'bg-green-500' : 'bg-gray-400'} h-2 rounded-full transition-all" style="width:${pct}%"></div></div><span class="text-xs text-gray-500">${pct}% &middot; ${j.processed_locations || 0}/${j.total_locations || 0}</span>${eta ? `<div class="text-xs text-green-600">${eta}</div>` : ''}` },
         { label: 'Total Leads', value: `<span class="text-lg font-semibold">${(j.total_leads || 0).toLocaleString()}</span>` },
         { label: 'Duplicates', value: `<span class="text-lg font-semibold text-gray-400">${(j.total_duplicates || 0).toLocaleString()}</span>` },
-        { label: 'API Calls', value: `<span class="text-lg font-semibold">${(j.total_api_calls || 0).toLocaleString()}</span>${(() => { const cl = j.credit_limit || (j.targeting_config && j.targeting_config.credit_limit); return cl ? `<span class="text-xs text-gray-400"> / ${cl.toLocaleString()} limit</span>` : ''; })()}` },
+        { label: 'API Credits', value: `${(() => { const calls = j.total_api_calls || 0; const cl = j.credit_limit || (j.targeting_config && j.targeting_config.credit_limit); if (cl) { return `<span class="text-lg font-semibold">${(calls * 3).toLocaleString()} / ${cl.toLocaleString()}</span> <span class="text-xs text-gray-400">credits (${calls} calls)</span>`; } return `<span class="text-lg font-semibold">${calls.toLocaleString()}</span> <span class="text-xs text-gray-400">calls (${(calls * 3).toLocaleString()} credits)</span>`; })()}` },
         { label: 'Emails Enriched', value: `<span class="text-lg font-semibold">${(j.emails_enriched || 0).toLocaleString()}</span>` },
         { label: 'SERP Enriched', value: `<span class="text-lg font-semibold">${(j.serp_enriched || 0).toLocaleString()}</span>` },
         { label: 'Duration', value: `<span class="text-sm font-medium">${durationText}</span>` },
