@@ -1645,10 +1645,8 @@ async function loadJobDetail(id) {
         } else {
             banner.classList.add('hidden');
         }
-        // Load leads on first load only
-        if (jobDetailLeadsOffset === 0 && document.getElementById('jd-leads-body').innerHTML === '') {
-            loadJobDetailLeads(id, false);
-        }
+        // Load leads
+        loadJobDetailLeads(id, false);
         // Auto-refresh for running jobs
         const isActive = ['running', 'pending', 'cancelling'].includes(j.status);
         if (isActive) startJobDetailPoll();
