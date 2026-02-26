@@ -177,34 +177,44 @@ def get_job_categories(job_id: str) -> list[dict]:
     """Return distinct category values with counts for a given job."""
     if not _client:
         return []
-    try:
-        all_rows = []
-        page_size = 1000
-        offset = 0
-        while True:
-            rows = (
-                _client.table(LEADS_TABLE)
-                .select("category")
-                .eq("job_id", job_id)
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-            all_rows.extend(rows.data)
-            if len(rows.data) < page_size:
+    import time
+    for attempt in range(3):
+        try:
+            all_rows = []
+            page_size = 1000
+            offset = 0
+            while True:
+                rows = (
+                    _client.table(LEADS_TABLE)
+                    .select("category")
+                    .eq("job_id", job_id)
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+                all_rows.extend(rows.data)
+                if len(rows.data) < page_size:
+                    break
+                offset += page_size
+            if all_rows or attempt == 2:
                 break
-            offset += page_size
-        counts: dict[str, int] = {}
-        for r in all_rows:
-            cat = r.get("category") or "Uncategorized"
-            counts[cat] = counts.get(cat, 0) + 1
-        return sorted(
-            [{"category": cat, "count": cnt} for cat, cnt in counts.items()],
-            key=lambda x: x["count"],
-            reverse=True,
-        )
-    except Exception as exc:
-        logger.error("Error getting job categories: %s", exc)
-        return []
+            # Empty result may be transient — retry
+            logger.warning("get_job_categories(%s): empty on attempt %d, retrying", job_id, attempt + 1)
+            time.sleep(0.5)
+        except Exception as exc:
+            logger.error("Error getting job categories (attempt %d): %s", attempt + 1, exc)
+            if attempt < 2:
+                time.sleep(0.5)
+                continue
+            return []
+    counts: dict[str, int] = {}
+    for r in all_rows:
+        cat = r.get("category") or "Uncategorized"
+        counts[cat] = counts.get(cat, 0) + 1
+    return sorted(
+        [{"category": cat, "count": cnt} for cat, cnt in counts.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )
 
 
 def _build_leads_query(

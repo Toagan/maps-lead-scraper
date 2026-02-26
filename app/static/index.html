@@ -1956,9 +1956,13 @@ function downloadCSV() {
 }
 
 let categoryModalJobId = null;
+let categoryModalQuery = null;
+let categoryModalCountry = null;
 
 async function downloadJobCSV(jobId, query, country) {
     categoryModalJobId = jobId;
+    if (query !== undefined) categoryModalQuery = query;
+    if (country !== undefined) categoryModalCountry = country;
     // Pre-fill filename from search term + country
     const slug = (query || 'leads').toLowerCase().replace(/[^a-z0-9äöüß]+/gi, '-').replace(/^-|-$/g, '');
     const suffix = country ? '-' + country.toLowerCase() : '';
@@ -1971,7 +1975,7 @@ async function downloadJobCSV(jobId, query, country) {
         const r = await fetch('/leads/categories?job_id=' + encodeURIComponent(jobId));
         const cats = await r.json();
         if (!cats.length) {
-            list.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">No categories found</div>';
+            list.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">No categories found <button onclick="downloadJobCSV(categoryModalJobId, categoryModalQuery, categoryModalCountry)" class="ml-2 text-br-600 hover:text-br-700 underline">Retry</button></div>';
             return;
         }
         const total = cats.reduce((s, c) => s + c.count, 0);
@@ -1986,7 +1990,7 @@ async function downloadJobCSV(jobId, query, country) {
             </label>`
         ).join('');
     } catch(e) {
-        list.innerHTML = '<div class="text-sm text-red-500 py-4 text-center">Failed to load categories</div>';
+        list.innerHTML = '<div class="text-sm text-red-500 py-4 text-center">Failed to load categories <button onclick="downloadJobCSV(categoryModalJobId, categoryModalQuery, categoryModalCountry)" class="ml-2 text-br-600 hover:text-br-700 underline">Retry</button></div>';
     }
 }
 
