@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import os
 from dataclasses import dataclass
 
@@ -117,7 +118,8 @@ _MAJOR_CITIES: dict[tuple[str, str], int] = {
     ("GB", "middlesbrough"): 140_000,
     # US — all 280+ cities with population >= 100k (2024 Census estimates)
     # For duplicate city names, largest population is used so all instances get grid search
-    ("US", "new york"): 8_350_000, ("US", "los angeles"): 3_870_000,
+    ("US", "new york"): 8_350_000, ("US", "new york city"): 8_350_000,
+    ("US", "los angeles"): 3_870_000,
     ("US", "chicago"): 2_710_000, ("US", "houston"): 2_435_000,
     ("US", "phoenix"): 1_700_000, ("US", "san antonio"): 1_570_000,
     ("US", "philadelphia"): 1_560_000, ("US", "san diego"): 1_415_000,
@@ -379,6 +381,143 @@ _MAJOR_CITIES: dict[tuple[str, str], int] = {
 }
 
 
+# Coordinates for _MAJOR_CITIES entries whose name appears multiple times in
+# the CSV (primarily US).  Used by _estimate_population() so that e.g.
+# Springfield, FL (pop ~5k) does NOT inherit Springfield, MO's 171k.
+_MAJOR_CITY_COORDS: dict[tuple[str, str], tuple[float, float]] = {
+    ("US", "abilene"): (32.45, -99.73),
+    ("US", "albany"): (42.65, -73.76),
+    ("US", "alexandria"): (38.80, -77.05),
+    ("US", "antioch"): (38.00, -121.81),
+    ("US", "arlington"): (32.74, -97.11),
+    ("US", "athens"): (33.96, -83.38),
+    ("US", "atlanta"): (33.75, -84.39),
+    ("US", "augusta"): (33.47, -81.97),
+    ("US", "aurora"): (39.73, -104.83),
+    ("US", "austin"): (30.27, -97.74),
+    ("US", "avondale"): (33.44, -112.35),
+    ("US", "beaumont"): (30.09, -94.10),
+    ("US", "bellevue"): (47.61, -122.20),
+    ("US", "berkeley"): (37.87, -122.27),
+    ("US", "birmingham"): (33.52, -86.80),
+    ("US", "boston"): (42.36, -71.06),
+    ("US", "brandon"): (27.94, -82.29),
+    ("US", "bridgeport"): (41.18, -73.19),
+    ("US", "brownsville"): (25.90, -97.50),
+    ("US", "buffalo"): (42.89, -78.88),
+    ("US", "burbank"): (34.18, -118.31),
+    ("US", "cambridge"): (42.37, -71.11),
+    ("US", "canton"): (42.31, -83.48),
+    ("US", "carlsbad"): (33.16, -117.35),
+    ("US", "carrollton"): (32.95, -96.89),
+    ("US", "cary"): (35.79, -78.78),
+    ("US", "charleston"): (32.78, -79.93),
+    ("US", "charlotte"): (35.23, -80.84),
+    ("US", "clarksville"): (36.53, -87.36),
+    ("US", "cleveland"): (41.50, -81.70),
+    ("US", "clovis"): (36.83, -119.70),
+    ("US", "columbia"): (34.00, -81.03),
+    ("US", "columbus"): (39.96, -82.99),
+    ("US", "concord"): (37.98, -122.03),
+    ("US", "corona"): (33.88, -117.57),
+    ("US", "dallas"): (32.78, -96.81),
+    ("US", "dayton"): (39.76, -84.19),
+    ("US", "des moines"): (41.60, -93.61),
+    ("US", "durham"): (35.99, -78.90),
+    ("US", "elgin"): (42.04, -88.28),
+    ("US", "enterprise"): (36.03, -115.24),
+    ("US", "evansville"): (37.97, -87.56),
+    ("US", "everett"): (47.98, -122.20),
+    ("US", "fairfield"): (38.25, -122.04),
+    ("US", "fayetteville"): (35.05, -78.88),
+    ("US", "fremont"): (37.55, -121.99),
+    ("US", "fresno"): (36.75, -119.77),
+    ("US", "fullerton"): (33.87, -117.92),
+    ("US", "gainesville"): (29.65, -82.32),
+    ("US", "georgetown"): (30.63, -97.68),
+    ("US", "glendale"): (33.54, -112.19),
+    ("US", "grand rapids"): (42.96, -85.66),
+    ("US", "hampton"): (37.03, -76.35),
+    ("US", "hartford"): (41.76, -72.69),
+    ("US", "henderson"): (36.04, -115.00),
+    ("US", "hillsboro"): (45.52, -122.99),
+    ("US", "hollywood"): (26.01, -80.15),
+    ("US", "huntsville"): (34.73, -86.59),
+    ("US", "independence"): (39.09, -94.42),
+    ("US", "jackson"): (32.30, -90.18),
+    ("US", "jacksonville"): (30.33, -81.66),
+    ("US", "kansas city"): (39.10, -94.58),
+    ("US", "kent"): (47.38, -122.23),
+    ("US", "knoxville"): (35.96, -83.92),
+    ("US", "lafayette"): (30.22, -92.02),
+    ("US", "lakeland"): (28.04, -81.95),
+    ("US", "lakewood"): (39.70, -105.08),
+    ("US", "lancaster"): (34.70, -118.14),
+    ("US", "lansing"): (42.73, -84.56),
+    ("US", "las vegas"): (36.17, -115.14),
+    ("US", "lewisville"): (33.05, -96.99),
+    ("US", "lexington"): (37.99, -84.48),
+    ("US", "lincoln"): (40.80, -96.67),
+    ("US", "long beach"): (33.77, -118.19),
+    ("US", "louisville"): (38.25, -85.76),
+    ("US", "lowell"): (42.63, -71.32),
+    ("US", "macon"): (32.84, -83.63),
+    ("US", "madison"): (43.07, -89.40),
+    ("US", "manchester"): (43.00, -71.45),
+    ("US", "memphis"): (35.15, -90.05),
+    ("US", "meridian"): (43.61, -116.39),
+    ("US", "mesquite"): (32.77, -96.60),
+    ("US", "miami"): (25.77, -80.19),
+    ("US", "midland"): (32.00, -102.08),
+    ("US", "montgomery"): (32.37, -86.30),
+    ("US", "nashville"): (36.16, -86.78),
+    ("US", "new haven"): (41.31, -72.93),
+    ("US", "newark"): (40.74, -74.17),
+    ("US", "norfolk"): (36.85, -76.29),
+    ("US", "oakland"): (37.80, -122.27),
+    ("US", "oceanside"): (33.20, -117.38),
+    ("US", "odessa"): (31.85, -102.37),
+    ("US", "ontario"): (34.06, -117.65),
+    ("US", "orange"): (33.79, -117.85),
+    ("US", "paradise"): (36.10, -115.15),
+    ("US", "pasadena"): (29.69, -95.21),
+    ("US", "peoria"): (33.58, -112.24),
+    ("US", "philadelphia"): (39.95, -75.17),
+    ("US", "plano"): (33.02, -96.70),
+    ("US", "pomona"): (34.06, -117.75),
+    ("US", "portland"): (45.52, -122.68),
+    ("US", "providence"): (41.82, -71.41),
+    ("US", "quincy"): (42.25, -71.00),
+    ("US", "richmond"): (37.55, -77.46),
+    ("US", "riverside"): (33.95, -117.40),
+    ("US", "riverview"): (27.87, -82.33),
+    ("US", "rochester"): (43.15, -77.62),
+    ("US", "rockford"): (42.27, -89.09),
+    ("US", "roseville"): (38.75, -121.29),
+    ("US", "salem"): (44.94, -123.04),
+    ("US", "santa clara"): (37.35, -121.96),
+    ("US", "savannah"): (32.08, -81.09),
+    ("US", "spring hill"): (28.48, -82.53),
+    ("US", "spring valley"): (36.11, -115.25),
+    ("US", "springfield"): (37.22, -93.30),
+    ("US", "sunnyvale"): (37.37, -122.04),
+    ("US", "syracuse"): (43.05, -76.15),
+    ("US", "warren"): (42.49, -83.01),
+    ("US", "washington"): (38.90, -77.04),
+    ("US", "westminster"): (39.84, -105.04),
+    ("US", "wilmington"): (34.24, -77.95),
+}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Approximate distance in km between two lat/lon points."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
 def _read_city_names_from_csv(csv_file: str, country_upper: str) -> set[str]:
     """Read all city names for a country from a CSV, keyed by 'name|lat' for uniqueness."""
     path = os.path.join(os.path.dirname(__file__), "..", "..", csv_file)
@@ -394,9 +533,25 @@ def _read_city_names_from_csv(csv_file: str, country_upper: str) -> set[str]:
     return keys
 
 
-def _estimate_population(country_upper: str, name: str, in_15k: bool, in_5k: bool) -> int:
-    """Estimate city population from known majors list + file tier."""
-    known = _MAJOR_CITIES.get((country_upper, name.lower()))
+def _estimate_population(
+    country_upper: str, name: str, lat: float, lon: float,
+    in_15k: bool, in_5k: bool,
+) -> int:
+    """Estimate city population from known majors list + file tier.
+
+    When _MAJOR_CITY_COORDS has reference coordinates for this (country, name),
+    the major population is only assigned if the CSV row is within 50 km.
+    This prevents e.g. Springfield, FL from inheriting Springfield, MO's pop.
+    """
+    key = (country_upper, name.lower())
+    known = _MAJOR_CITIES.get(key)
+    if known:
+        ref_coords = _MAJOR_CITY_COORDS.get(key)
+        if ref_coords:
+            dist = _haversine_km(lat, lon, ref_coords[0], ref_coords[1])
+            if dist > 50:
+                # Not the actual major city — fall through to heuristic
+                known = None
     if known:
         return known
     # File-tier heuristic: 15k file = at least 15k, 5k file = at least 5k
@@ -429,7 +584,11 @@ def load_worldwide_cities(country_code: str, scrape_mode: str) -> list[City]:
             if row["country"] != code:
                 continue
             key = f"{row['name']}|{row['lat']}"
-            pop = _estimate_population(code, row["name"], key in cities_15k, key in cities_5k)
+            pop = _estimate_population(
+                code, row["name"],
+                float(row["lat"]), float(row["lng"]),
+                key in cities_15k, key in cities_5k,
+            )
             cities.append(City(
                 name=row["name"],
                 lat=float(row["lat"]),
