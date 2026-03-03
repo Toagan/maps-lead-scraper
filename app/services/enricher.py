@@ -213,6 +213,47 @@ _SEARCH_SUFFIX = {
 }
 
 
+async def _discover_one(
+    session: aiohttp.ClientSession,
+    row: dict,
+    gl: str,
+    hl: str,
+    suffix: str,
+) -> dict | None:
+    """SERP-discover a website for one lead and optionally extract email."""
+    from app.services.serper import search_web
+
+    name = row.get("name", "")
+    city = row.get("city", "")
+    if not name:
+        return None
+
+    query = f"{name} {city} {suffix}"
+    results = await search_web(query, gl=gl, hl=hl, num=5)
+
+    website_url = None
+    for r in results:
+        link = r.get("link", "")
+        if link and not _is_directory_url(link):
+            website_url = link
+            break
+
+    if not website_url:
+        return None
+
+    async with _semaphore:
+        email, source = await _crawl_for_email(session, website_url)
+
+    from datetime import datetime, timezone
+    return {
+        "place_id": row["place_id"],
+        "website": website_url,
+        "email": email,
+        "source": source,
+        "enriched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 async def discover_and_enrich(
     country: str,
     job_id: str,
@@ -220,35 +261,25 @@ async def discover_and_enrich(
 ) -> int:
     """SERP-based discovery: find websites for leads that have none, then extract emails.
 
+    Uses job_leads membership table to scope to this job's leads only.
+    Processes up to enricher_max_concurrent leads concurrently.
+
     Returns count of leads where an email was found via SERP.
     """
-    client = db.get_client()
-    if not client:
-        return 0
-
-    # Fetch leads with no website AND no email for this job
-    try:
-        result = (
-            client.table(db.LEADS_TABLE)
-            .select("place_id, name, city")
-            .eq("job_id", job_id)
-            .eq("country", country)
-            .or_("website.is.null,website.eq.")
-            .is_("email", "null")
-            .limit(5000)
-            .execute()
-        )
-        candidates = result.data
-    except Exception as exc:
-        logger.error("Error fetching SERP discovery candidates: %s", exc)
-        return 0
+    # Fetch candidates via job_leads join (fixes broken scraper_leads.job_id query)
+    candidates = await asyncio.to_thread(
+        db.get_job_leads_for_enrichment,
+        job_id,
+        needs_email=True,
+        needs_website=True,
+        fields="place_id,name,city",
+    )
 
     if not candidates:
         return 0
 
     logger.info("Job %s: SERP discovery for %d leads (country=%s)", job_id, len(candidates), country)
 
-    from app.services.serper import search_web
     from app.geo.worldwide import is_worldwide, get_serper_params
 
     if is_worldwide(country):
@@ -262,52 +293,37 @@ async def discover_and_enrich(
     enriched = 0
     serp_buffer: list[dict] = []
     BUFFER_SIZE = 50
+    batch_size = settings.enricher_max_concurrent
 
     async with aiohttp.ClientSession() as session:
-        for i, row in enumerate(candidates):
+        # Process in concurrent batches
+        for batch_start in range(0, len(candidates), batch_size):
             if cancel_event.is_set():
                 break
 
-            name = row.get("name", "")
-            city = row.get("city", "")
-            if not name:
-                continue
+            batch = candidates[batch_start:batch_start + batch_size]
+            coros = [
+                _discover_one(session, row, gl, hl, suffix)
+                for row in batch
+            ]
+            results = await asyncio.gather(*coros, return_exceptions=True)
 
-            query = f"{name} {city} {suffix}"
-            results = await search_web(query, gl=gl, hl=hl, num=5)
-
-            # Pick first non-directory result
-            website_url = None
-            for r in results:
-                link = r.get("link", "")
-                if link and not _is_directory_url(link):
-                    website_url = link
-                    break
-
-            if not website_url:
-                continue
-
-            async with _semaphore:
-                email, source = await _crawl_for_email(session, website_url)
-
-            from datetime import datetime, timezone
-            update = {
-                "place_id": row["place_id"],
-                "website": website_url,
-                "email": email,
-                "source": source,
-                "enriched_at": datetime.now(timezone.utc).isoformat(),
-            }
-            serp_buffer.append(update)
-            if email:
-                enriched += 1
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.debug("SERP discovery error: %s", result)
+                    continue
+                if result is None:
+                    continue
+                serp_buffer.append(result)
+                if result.get("email"):
+                    enriched += 1
 
             # Flush buffer periodically
             if len(serp_buffer) >= BUFFER_SIZE:
                 await asyncio.to_thread(_flush_serp_updates, serp_buffer)
-                serp_buffer = []
                 logger.info("Job %s: SERP discovery progress %d/%d, found %d emails",
-                            job_id, i + 1, len(candidates), enriched)
+                            job_id, batch_start + len(batch), len(candidates), enriched)
+                serp_buffer = []
 
     # Flush remaining
     if serp_buffer:
@@ -318,31 +334,50 @@ async def discover_and_enrich(
     return enriched
 
 
+async def _enrich_one(
+    session: aiohttp.ClientSession,
+    row: dict,
+) -> dict | None:
+    """Crawl one lead's website for an email address."""
+    website = row.get("website", "")
+    if not website:
+        return None
+
+    async with _semaphore:
+        email, source = await _crawl_for_email(session, website)
+
+    if not email:
+        return None
+
+    from datetime import datetime, timezone
+    return {
+        "place_id": row["place_id"],
+        "email": email,
+        "source": source,
+        "enriched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 async def enrich_leads(
     country: str,
     job_id: str,
     cancel_event: asyncio.Event,
 ) -> int:
-    """Enrich all leads that have a website but no email. Returns count enriched."""
-    client = db.get_client()
-    if not client:
-        return 0
+    """Enrich leads that have a website but no email.
 
-    # Fetch leads needing enrichment
-    try:
-        result = (
-            client.table(db.LEADS_TABLE)
-            .select("place_id, website")
-            .eq("country", country)
-            .neq("website", "")
-            .is_("email", "null")
-            .limit(5000)
-            .execute()
-        )
-        candidates = result.data
-    except Exception as exc:
-        logger.error("Error fetching enrichment candidates: %s", exc)
-        return 0
+    Uses job_leads membership table to scope to this job's leads only.
+    Processes up to enricher_max_concurrent leads concurrently.
+
+    Returns count enriched.
+    """
+    # Fetch candidates via job_leads join (fixes unscoped country-wide query)
+    candidates = await asyncio.to_thread(
+        db.get_job_leads_for_enrichment,
+        job_id,
+        needs_email=True,
+        has_website=True,
+        fields="place_id,website",
+    )
 
     if not candidates:
         return 0
@@ -351,35 +386,33 @@ async def enrich_leads(
     enriched = 0
     email_buffer: list[dict] = []
     BUFFER_SIZE = 50
+    batch_size = settings.enricher_max_concurrent
 
     async with aiohttp.ClientSession() as session:
-        for i, row in enumerate(candidates):
+        # Process in concurrent batches
+        for batch_start in range(0, len(candidates), batch_size):
             if cancel_event.is_set():
                 break
 
-            website = row.get("website", "")
-            if not website:
-                continue
+            batch = candidates[batch_start:batch_start + batch_size]
+            coros = [_enrich_one(session, row) for row in batch]
+            results = await asyncio.gather(*coros, return_exceptions=True)
 
-            async with _semaphore:
-                email, source = await _crawl_for_email(session, website)
-
-            if email:
-                from datetime import datetime, timezone
-                email_buffer.append({
-                    "place_id": row["place_id"],
-                    "email": email,
-                    "source": source,
-                    "enriched_at": datetime.now(timezone.utc).isoformat(),
-                })
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.debug("Enrichment error: %s", result)
+                    continue
+                if result is None:
+                    continue
+                email_buffer.append(result)
                 enriched += 1
 
             # Flush buffer periodically
             if len(email_buffer) >= BUFFER_SIZE:
                 await asyncio.to_thread(_flush_email_updates, email_buffer)
-                email_buffer = []
                 logger.info("Job %s: enrichment progress %d/%d, found %d emails",
-                            job_id, i + 1, len(candidates), enriched)
+                            job_id, batch_start + len(batch), len(candidates), enriched)
+                email_buffer = []
 
     # Flush remaining
     if email_buffer:

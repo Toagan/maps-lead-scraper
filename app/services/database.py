@@ -232,6 +232,50 @@ def _list_job_place_ids(job_id: str) -> list[str]:
     return place_ids
 
 
+def get_job_leads_for_enrichment(
+    job_id: str,
+    needs_email: bool = False,
+    needs_website: bool = False,
+    has_website: bool = False,
+    fields: str = "place_id,website,name,city",
+    limit: int = 5000,
+) -> list[dict]:
+    """Fetch leads belonging to a job via job_leads, with optional filters.
+
+    This avoids the broken scraper_leads.job_id column (which is never set)
+    by joining through the job_leads membership table.
+    """
+    if not _client:
+        return []
+    try:
+        # Step 1: get place_ids for this job
+        place_ids = _list_job_place_ids(job_id)
+        if not place_ids:
+            return []
+
+        # Step 2: fetch lead data in chunks with filters
+        results: list[dict] = []
+        for chunk in _chunked(place_ids, 500):
+            q = _client.table(LEADS_TABLE).select(fields)
+            q = q.in_("place_id", chunk)
+            if needs_email:
+                q = q.is_("email", "null")
+            if needs_website:
+                q = q.or_("website.is.null,website.eq.")
+            if has_website:
+                q = q.neq("website", "").neq("website", None)
+            q = q.range(0, len(chunk) - 1)
+            rows = q.execute()
+            results.extend(rows.data or [])
+            if len(results) >= limit:
+                results = results[:limit]
+                break
+        return results
+    except Exception as exc:
+        logger.error("Error fetching job leads for enrichment: %s", exc)
+        return []
+
+
 def flag_chains(job_id: str, chain_scores: dict[str, float]) -> int:
     """Mark job leads as chains with a confidence score."""
     if not _client or not chain_scores:
