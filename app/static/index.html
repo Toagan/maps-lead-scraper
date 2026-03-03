@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BlueReach Lead Scraper</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -58,7 +59,7 @@
 <body class="bg-gray-100 min-h-screen">
     <!-- Nav -->
     <nav class="bg-br-950 shadow-lg">
-        <div class="max-w-7xl mx-auto px-4">
+        <div class="px-6">
             <div class="flex items-center justify-between h-14">
                 <div class="flex items-center space-x-2">
                     <div class="w-7 h-7 bg-br-500 rounded-lg flex items-center justify-center">
@@ -71,11 +72,15 @@
                     <button onclick="showTab('jobs')" id="tab-jobs" class="px-4 py-4 text-sm font-medium text-br-200 hover:text-white">Jobs</button>
                     <button onclick="showTab('settings')" id="tab-settings" class="px-4 py-4 text-sm font-medium text-br-200 hover:text-white">Settings</button>
                 </div>
+                <div class="flex items-center gap-3">
+                    <span id="user-email" class="text-xs text-br-300 hidden"></span>
+                    <button onclick="signOut()" class="px-3 py-1.5 text-xs font-medium text-br-200 hover:text-white border border-br-800 rounded-lg hover:border-br-600 transition">Sign Out</button>
+                </div>
             </div>
         </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 py-6">
+    <main class="px-6 py-6">
 
         <!-- ==================== NEW SCRAPE ==================== -->
         <div id="view-scrape">
@@ -774,7 +779,7 @@ function showTab(tab) {
 // ---- Dashboard ----
 async function loadStats() {
     try {
-        const r = await fetch('/stats');
+        const r = await authFetch('/stats');
         const d = await r.json();
         document.getElementById('stat-total').textContent = (d.total_leads || 0).toLocaleString();
         document.getElementById('stat-email').textContent = (d.with_email || 0).toLocaleString();
@@ -796,7 +801,7 @@ let bundleTerms = [];
 async function loadCategories(forceReload) {
     if (categoriesLoaded && !forceReload) return;
     try {
-        const r = await fetch('/categories');
+        const r = await authFetch('/categories');
         const d = await r.json();
         categoriesData = d;
         // Keep hidden select in sync for form logic
@@ -910,7 +915,7 @@ async function generateTerms() {
     btn.disabled = true;
     loading.classList.remove('hidden');
     try {
-        const r = await fetch('/categories/suggest', {
+        const r = await authFetch('/categories/suggest', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({niche, language}),
@@ -966,7 +971,7 @@ async function saveBundle() {
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
-        const r = await fetch('/categories/save', {
+        const r = await authFetch('/categories/save', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({name, queries: bundleTerms}),
@@ -1093,7 +1098,7 @@ async function importFromChatGPT() {
 async function deleteBundle(key) {
     if (!await showConfirm('Delete this custom bundle?')) return;
     try {
-        const r = await fetch('/categories/' + key, {method: 'DELETE'});
+        const r = await authFetch('/categories/' + key, {method: 'DELETE'});
         if (!r.ok) { const d = await r.json(); alert(d.detail || 'Failed to delete'); return; }
         categoriesLoaded = false;
         await loadCategories(true);
@@ -1104,7 +1109,7 @@ async function deleteBundle(key) {
 
 async function loadRegions() {
     try {
-        const r = await fetch('/regions');
+        const r = await authFetch('/regions');
         regionsData = await r.json();
         renderRegionCheckboxes();
     } catch(e) {
@@ -1228,7 +1233,7 @@ function toggleRegionMode() {
 async function loadWorldwideCountries() {
     if (wwCountriesLoaded) return;
     try {
-        const r = await fetch('/worldwide-countries');
+        const r = await authFetch('/worldwide-countries');
         const countries = await r.json();
         const sel = document.getElementById('ww-country');
         sel.innerHTML = '';
@@ -1300,7 +1305,7 @@ async function estimateScrape() {
     resultDiv.textContent = 'Estimating...';
     resultDiv.classList.remove('hidden');
     try {
-        const r = await fetch('/scrape/estimate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const r = await authFetch('/scrape/estimate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         const d = await r.json();
         if (r.ok) {
             resultDiv.textContent = `Estimate: ~${d.estimated_credits.toLocaleString()} credits (${d.estimated_api_calls.toLocaleString()} API calls, ${d.cities} cities, ${d.total_grid_points} grid points, ${d.search_queries} queries)`;
@@ -1322,7 +1327,7 @@ async function previewScrape() {
     resultDiv.textContent = 'Running preview (1 API call)...';
     resultDiv.classList.remove('hidden');
     try {
-        const r = await fetch('/scrape/preview', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const r = await authFetch('/scrape/preview', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         const d = await r.json();
         if (r.ok) {
             const lines = [`Preview: "${d.query}" — ${d.match_rate} relevant results`];
@@ -1361,7 +1366,7 @@ document.getElementById('scrape-form').addEventListener('submit', async (e) => {
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
-        const r = await fetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: controller.signal });
+        const r = await authFetch('/scrape', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: controller.signal });
         clearTimeout(timeout);
         const d = await r.json();
         resultDiv.classList.remove('hidden');
@@ -1466,7 +1471,7 @@ async function deleteSelectedJobs() {
     if (!await showConfirm(`Delete ${count} selected job(s) and all their leads? This cannot be undone.`)) return;
     const ids = [...selectedJobIds];
     for (const id of ids) {
-        try { await fetch(`/jobs/${id}`, { method: 'DELETE' }); } catch(e) { console.error('Delete error:', e); }
+        try { await authFetch(`/jobs/${id}`, { method: 'DELETE' }); } catch(e) { console.error('Delete error:', e); }
     }
     selectedJobIds.clear();
     updateBulkToolbar();
@@ -1476,7 +1481,7 @@ async function deleteSelectedJobs() {
 
 async function loadJobs() {
     try {
-        const r = await fetch('/jobs?limit=50');
+        const r = await authFetch('/jobs?limit=50');
         const jobs = await r.json();
         const tbody = document.getElementById('jobs-body');
         const empty = document.getElementById('jobs-empty');
@@ -1655,7 +1660,7 @@ function stopJobPoll() {
 
 async function cancelJob(id) {
     try {
-        await fetch(`/jobs/${id}/cancel`, { method: 'POST' });
+        await authFetch(`/jobs/${id}/cancel`, { method: 'POST' });
         loadJobs();
     } catch(e) {
         console.error('Cancel error:', e);
@@ -1664,7 +1669,7 @@ async function cancelJob(id) {
 
 async function resumeJob(id) {
     try {
-        const r = await fetch(`/jobs/${id}/resume`, { method: 'POST' });
+        const r = await authFetch(`/jobs/${id}/resume`, { method: 'POST' });
         if (!r.ok) {
             const err = await r.json();
             alert('Resume failed: ' + (err.detail || r.statusText));
@@ -1680,7 +1685,7 @@ async function resumeJob(id) {
 async function deleteJob(id) {
     if (!await showConfirm('Delete this job and all its leads? This cannot be undone.')) return;
     try {
-        const r = await fetch(`/jobs/${id}`, { method: 'DELETE' });
+        const r = await authFetch(`/jobs/${id}`, { method: 'DELETE' });
         if (r.ok) {
             loadJobs();
         } else {
@@ -1720,7 +1725,7 @@ function showJobDetail(id) {
 
 async function loadJobDetail(id) {
     try {
-        const r = await fetch('/jobs/' + id);
+        const r = await authFetch('/jobs/' + id);
         if (!r.ok) { showTab('jobs'); return; }
         const j = await r.json();
         document.getElementById('jd-title').textContent = j.job_name || j.search_term || 'Job Detail';
@@ -1829,7 +1834,7 @@ function renderJobDetailActions(j) {
 async function deleteJobFromDetail(id) {
     if (!await showConfirm('Delete this job and all its leads? This cannot be undone.')) return;
     try {
-        const r = await fetch('/jobs/' + id, { method: 'DELETE' });
+        const r = await authFetch('/jobs/' + id, { method: 'DELETE' });
         if (r.ok) {
             stopJobDetailPoll();
             showTab('jobs');
@@ -1848,7 +1853,7 @@ async function loadJobDetailLeads(id, append) {
         p.set('job_id', id);
         p.set('limit', '50');
         p.set('offset', jobDetailLeadsOffset);
-        const r = await fetch('/leads?' + p.toString());
+        const r = await authFetch('/leads?' + p.toString());
         const d = await r.json();
         jobDetailLeadsTotal = d.total || 0;
         document.getElementById('jd-leads-count').textContent = jobDetailLeadsTotal > 0 ? jobDetailLeadsTotal.toLocaleString() + ' leads' : '';
@@ -1943,7 +1948,7 @@ async function loadLeads() {
         const p = buildLeadParams();
         p.set('limit', LEADS_PER_PAGE);
         p.set('offset', currentLeadPage * LEADS_PER_PAGE);
-        const r = await fetch('/leads?' + p.toString());
+        const r = await authFetch('/leads?' + p.toString());
         const d = await r.json();
         totalLeads = d.total || 0;
         const tbody = document.getElementById('leads-body');
@@ -2003,7 +2008,7 @@ async function downloadJobCSV(jobId, query, country) {
     document.getElementById('cat-modal-info').textContent = '';
     document.getElementById('category-modal').classList.remove('hidden');
     try {
-        const r = await fetch('/leads/categories?job_id=' + encodeURIComponent(jobId));
+        const r = await authFetch('/leads/categories?job_id=' + encodeURIComponent(jobId));
         const cats = await r.json();
         if (!cats.length) {
             list.innerHTML = '<div class="text-sm text-gray-400 py-4 text-center">No categories found <button onclick="downloadJobCSV(categoryModalJobId, categoryModalQuery, categoryModalCountry)" class="ml-2 text-br-600 hover:text-br-700 underline">Retry</button></div>';
@@ -2083,7 +2088,7 @@ function shortUrl(u) {
 // ---- Settings ----
 async function loadSettings() {
     try {
-        const r = await fetch('/settings');
+        const r = await authFetch('/settings');
         const d = await r.json();
         const badge = document.getElementById('serper-key-badge');
         const masked = document.getElementById('serper-key-masked');
@@ -2123,7 +2128,7 @@ async function saveSerperKey() {
     const key = document.getElementById('serper-key-input').value.trim();
     if (!key) { showSerperMsg('Please enter an API key', true); return; }
     try {
-        const r = await fetch('/settings/serper-key', {
+        const r = await authFetch('/settings/serper-key', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({api_key: key})
@@ -2140,7 +2145,7 @@ async function saveSerperKey() {
 
 async function resetSerperKey() {
     try {
-        const r = await fetch('/settings/serper-key', {method: 'DELETE'});
+        const r = await authFetch('/settings/serper-key', {method: 'DELETE'});
         if (r.ok) {
             showSerperMsg('Reset to default environment key.', false);
             loadSettings();
@@ -2148,8 +2153,45 @@ async function resetSerperKey() {
     } catch(e) { showSerperMsg('Network error', true); }
 }
 
+// ---- Auth ----
+let _supabaseClient = null;
+
+async function initAuth() {
+    const r = await fetch('/auth/config');
+    const cfg = await r.json();
+    _supabaseClient = window.supabase.createClient(cfg.supabase_url, cfg.supabase_anon_key);
+
+    const { data: { session } } = await _supabaseClient.auth.getSession();
+    if (!session) { window.location.href = '/login'; return; }
+
+    const emailEl = document.getElementById('user-email');
+    emailEl.textContent = session.user.email;
+    emailEl.classList.remove('hidden');
+
+    _supabaseClient.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT') window.location.href = '/login';
+    });
+}
+
+async function getAccessToken() {
+    const { data: { session } } = await _supabaseClient.auth.getSession();
+    return session?.access_token;
+}
+
+async function authFetch(url, options = {}) {
+    const token = await getAccessToken();
+    if (!token) { window.location.href = '/login'; return; }
+    const headers = { ...(options.headers || {}), 'Authorization': 'Bearer ' + token };
+    return fetch(url, { ...options, headers });
+}
+
+async function signOut() {
+    if (_supabaseClient) await _supabaseClient.auth.signOut();
+    window.location.href = '/login';
+}
+
 // ---- Init ----
-showTab('scrape');
+initAuth().then(() => showTab('scrape'));
 </script>
 </body>
 </html>

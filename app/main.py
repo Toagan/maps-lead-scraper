@@ -6,9 +6,10 @@ logging.basicConfig(level=logging.INFO)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import settings
 from app.services.database import init_supabase, close_supabase
 from app.services.serper import close_session
 from app.api.router import api_router
@@ -58,6 +59,24 @@ app.include_router(api_router)
 
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+
+@app.get("/health")
+async def health():
+    return JSONResponse({"status": "ok"})
+
+
+@app.get("/auth/config")
+async def auth_config():
+    return JSONResponse({
+        "supabase_url": settings.supabase_url,
+        "supabase_anon_key": settings.supabase_anon_key,
+    })
+
+
+@app.get("/login")
+async def login_page():
+    return FileResponse(os.path.join(_static_dir, "login.html"))
 
 
 @app.get("/")

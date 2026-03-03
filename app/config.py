@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     supabase_url: str = ""
     supabase_key: str = ""
+    supabase_jwt_secret: str = ""
+    supabase_anon_key: str = ""
 
     # Rate limiting
     serper_max_rps: int = 50
