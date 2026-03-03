@@ -8,6 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -22,6 +23,19 @@
             }
         }
     </script>
+    <script>if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');</script>
+    <style>
+        html.dark body { background-color: #111827; }
+        html.dark .bg-white { background-color: #1f2937 !important; }
+        html.dark .bg-gray-100 { background-color: #111827 !important; }
+        html.dark .text-gray-500 { color: #9ca3af !important; }
+        html.dark .text-gray-700 { color: #d1d5db !important; }
+        html.dark .text-br-950 { color: #e5e7eb !important; }
+        html.dark .border-gray-200 { border-color: #374151 !important; }
+        html.dark .border-gray-300 { border-color: #4b5563 !important; }
+        html.dark .bg-red-50 { background-color: #2a1215 !important; }
+        html.dark button:hover .bg-gray-50 { background-color: #374151 !important; }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
     <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-8 w-full max-w-sm text-center">

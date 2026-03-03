@@ -50,6 +50,23 @@ async def close_session():
         _session = None
 
 
+async def get_account_info() -> dict | None:
+    """Fetch Serper account info (credits remaining, etc.)."""
+    try:
+        session = await _get_session()
+        async with session.get(
+            "https://google.serper.dev/account",
+            headers={"X-API-KEY": get_serper_api_key(), "Content-Type": "application/json"},
+        ) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            logger.warning("Serper /account returned %s", resp.status)
+            return None
+    except Exception as exc:
+        logger.warning("Failed to fetch Serper account info: %s", exc)
+        return None
+
+
 async def search_maps(
     query: str,
     gl: str,
