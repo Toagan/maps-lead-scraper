@@ -26,12 +26,14 @@ CREATE TABLE IF NOT EXISTS scraper_leads (
     city           TEXT,
     search_term    TEXT,
     category_relevance REAL,
+    fit_score      REAL,
     low_confidence BOOLEAN DEFAULT FALSE,
     is_chain       BOOLEAN DEFAULT FALSE,
+    chain_confidence REAL,
     street         TEXT,
     postal_code    TEXT,
     city_parsed    TEXT,
-    job_id         UUID REFERENCES scrape_jobs(id),
+    job_id         UUID,
     scraped_at     TIMESTAMPTZ DEFAULT NOW(),
     enriched_at    TIMESTAMPTZ,
     updated_at     TIMESTAMPTZ DEFAULT NOW()
@@ -40,6 +42,7 @@ CREATE TABLE IF NOT EXISTS scraper_leads (
 CREATE INDEX IF NOT EXISTS idx_scraper_leads_country ON scraper_leads(country);
 CREATE INDEX IF NOT EXISTS idx_scraper_leads_region ON scraper_leads(country, region);
 CREATE INDEX IF NOT EXISTS idx_scraper_leads_place_id ON scraper_leads(place_id);
+CREATE INDEX IF NOT EXISTS idx_scraper_leads_fit_score ON scraper_leads(fit_score);
 
 CREATE TABLE IF NOT EXISTS scrape_jobs (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,3 +65,14 @@ CREATE TABLE IF NOT EXISTS scrape_jobs (
     started_at          TIMESTAMPTZ,
     completed_at        TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS job_leads (
+    job_id          UUID NOT NULL REFERENCES scrape_jobs(id) ON DELETE CASCADE,
+    place_id        TEXT NOT NULL REFERENCES scraper_leads(place_id) ON DELETE CASCADE,
+    found_by_query  TEXT,
+    found_at        TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (job_id, place_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_leads_job_id ON job_leads(job_id);
+CREATE INDEX IF NOT EXISTS idx_job_leads_place_id ON job_leads(place_id);

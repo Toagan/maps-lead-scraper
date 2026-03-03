@@ -15,7 +15,8 @@ Built with FastAPI + Supabase + vanilla JS frontend.
 - **Preview mode** — test a search with 1 API call before committing
 - **Email enrichment** — crawls business websites to extract emails (OpenAI-assisted)
 - **Quality flags** — closed business detection, chain detection, low-confidence flagging, category relevance scoring
-- **Per-job CSV export** — download leads from individual scrape runs
+- **Lead fit scoring** — per-lead `fit_score` (0-1) for outbound prioritization
+- **Per-job CSV export** — membership-safe exports via `job_leads` (no overwrite issue)
 - **Real-time job tracking** — progress, cancellation, auto-polling
 
 ## Quick Start
@@ -51,6 +52,8 @@ migrations/001_custom_bundles.sql
 migrations/002_add_category_relevance.sql
 migrations/003_quality_flags_and_address.sql
 migrations/004_job_name.sql
+migrations/005_job_leads_membership.sql
+migrations/006_fit_score_and_chain_confidence.sql
 ```
 
 ### Run

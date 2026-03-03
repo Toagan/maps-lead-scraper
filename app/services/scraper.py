@@ -33,6 +33,26 @@ _background_tasks: set[asyncio.Task] = set()
 _MAX_RESULT_DISTANCE_KM = 25.0
 
 
+class _CallBudget:
+    """Global API-call budget shared across concurrent workers."""
+
+    def __init__(self, max_calls: int):
+        self.max_calls = max(0, max_calls)
+        self.used_calls = 0
+        self._lock = asyncio.Lock()
+
+    async def try_acquire(self) -> bool:
+        async with self._lock:
+            if self.used_calls >= self.max_calls:
+                return False
+            self.used_calls += 1
+            return True
+
+    async def remaining(self) -> int:
+        async with self._lock:
+            return max(0, self.max_calls - self.used_calls)
+
+
 def launch_job_task(coro) -> asyncio.Task:
     """Create a background task with a strong reference to prevent GC."""
     task = asyncio.create_task(coro)
@@ -149,6 +169,41 @@ async def preview_search(
 _CREDITS_PER_CALL = 3  # Serper /maps = 3 credits per API call
 
 
+def _compute_fit_score(
+    relevance: float,
+    rating: float | None,
+    review_count: int,
+    has_website: bool,
+    has_phone: bool,
+    low_confidence: bool,
+) -> float:
+    """Compute a 0.0-1.0 outbound-fit score without dropping any lead."""
+    score = relevance * 0.55
+    if has_website:
+        score += 0.15
+    if has_phone:
+        score += 0.10
+
+    if review_count >= 50:
+        score += 0.12
+    elif review_count >= 10:
+        score += 0.08
+    elif review_count >= 3:
+        score += 0.04
+
+    if rating is not None:
+        if rating >= 4.5:
+            score += 0.08
+        elif rating >= 4.0:
+            score += 0.05
+        elif rating >= 3.5:
+            score += 0.02
+
+    if low_confidence:
+        score -= 0.08
+    return max(0.0, min(1.0, round(score, 4)))
+
+
 async def _scrape_grid_point(
     query: str,
     gl: str,
@@ -160,6 +215,8 @@ async def _scrape_grid_point(
     search_term: str,
     city_name: str,
     cancel_event: asyncio.Event,
+    call_budget: _CallBudget | None = None,
+    phase_stop_event: asyncio.Event | None = None,
 ) -> tuple[list[dict], int, int, bool]:
     """Process one grid point: paginate and collect raw records.
 
@@ -173,7 +230,12 @@ async def _scrape_grid_point(
     gp_pids: set[str] = set()  # Dedup within this grid point across all pages
 
     for page in range(max_pages):
-        if cancel_event.is_set():
+        if cancel_event.is_set() or (phase_stop_event and phase_stop_event.is_set()):
+            break
+
+        if call_budget and not await call_budget.try_acquire():
+            # Hard stop when global credit budget is exhausted.
+            cancel_event.set()
             break
 
         data = await search_maps(
@@ -192,7 +254,6 @@ async def _scrape_grid_point(
 
         places = data["places"]
         last_page_count = len(places)
-        new_on_page = 0
 
         for place in places:
             if is_place_closed(place):
@@ -216,7 +277,6 @@ async def _scrape_grid_point(
             if pid in gp_pids:
                 continue
             gp_pids.add(pid)
-            new_on_page += 1
 
             records.append({
                 "pdata": pdata,
@@ -228,10 +288,6 @@ async def _scrape_grid_point(
         if last_page_count < 20:
             break
 
-        # Adaptive duplicate threshold within this grid point's pages
-        if new_on_page < last_page_count * 0.25:
-            break
-
     saturated = (page + 1 >= max_pages and last_page_count >= 20) if max_pages > 0 else False
     return records, local_api_calls, local_closed_skipped, saturated
 
@@ -240,13 +296,37 @@ async def _scrape_grid_point_with_meta(
     city_name: str,
     city_country: str,
     region_code: str | None,
+    search_term: str,
+    query: str,
+    gp_lat: float,
+    gp_lon: float,
+    max_pages: int,
     **gp_kwargs,
-) -> tuple[str, str, str | None, list[dict], int, int, bool]:
+) -> tuple[str, str, str | None, str, str, float, float, int, list[dict], int, int, bool]:
     """Wrapper that bundles city metadata with grid point results."""
     records, api_calls, closed, saturated = await _scrape_grid_point(
-        city_name=city_name, **gp_kwargs,
+        city_name=city_name,
+        query=query,
+        gp_lat=gp_lat,
+        gp_lon=gp_lon,
+        max_pages=max_pages,
+        search_term=search_term,
+        **gp_kwargs,
     )
-    return city_name, city_country, region_code, records, api_calls, closed, saturated
+    return (
+        city_name,
+        city_country,
+        region_code,
+        search_term,
+        query,
+        gp_lat,
+        gp_lon,
+        max_pages,
+        records,
+        api_calls,
+        closed,
+        saturated,
+    )
 
 
 async def run_job(
@@ -319,6 +399,15 @@ async def run_job(
         logger.info("Job %s: %d queries, %d cities",
                     job_id, len(search_queries), len(cities))
 
+    # Hard credit gate shared by all concurrent requests.
+    call_budget: _CallBudget | None = None
+    if credit_limit is not None:
+        max_calls = credit_limit // _CREDITS_PER_CALL
+        remaining_calls = max(0, max_calls - total_api_calls)
+        call_budget = _CallBudget(remaining_calls)
+        if remaining_calls == 0:
+            cancel_event.set()
+
     leads_buffer: list[dict] = []
     # Track business name frequencies for chain detection
     name_counts: dict[str, int] = {}
@@ -362,128 +451,271 @@ async def run_job(
         logger.info("Job %s: skipped %d/%d tasks, %d remaining",
                      job_id, resume_offset, total_steps, len(all_task_descs))
 
+    # Pass-1 metrics used to decide adaptive second-pass deepening.
+    pass1_candidates: dict[tuple[str, str, float, float], dict] = {}
+    pass1_query_new_leads: dict[str, int] = {}
+    pass1_query_api_calls: dict[str, int] = {}
+
     try:
-        # Process in batches to allow cancel_event to stop new work.
-        # When a credit limit is set, cap batch size so we don't overshoot.
-        DEFAULT_BATCH_SIZE = 40
-        desc_idx = 0
+        async def _flush_buffer() -> None:
+            nonlocal leads_buffer
+            if leads_buffer:
+                await asyncio.to_thread(db.upsert_leads, leads_buffer)
+                leads_buffer = []
 
-        while desc_idx < len(all_task_descs) and not cancel_event.is_set():
-            # Dynamic batch size: if credit limit set, only launch as many
-            # coroutines as the remaining credit budget allows (1 API call each)
-            if credit_limit:
-                remaining_budget = max(1, (credit_limit // _CREDITS_PER_CALL) - total_api_calls)
-                batch_size = min(DEFAULT_BATCH_SIZE, remaining_budget)
-            else:
+        async def _checkpoint() -> None:
+            await asyncio.to_thread(
+                db.update_job,
+                job_id,
+                processed_locations=current_step,
+                total_locations=total_steps,
+                total_leads=total_leads,
+                total_duplicates=total_dupes,
+                total_api_calls=total_api_calls,
+                saturated_points=saturated_points,
+            )
+
+        async def _process_task_descs(
+            task_descs: list[dict],
+            phase_label: str,
+            count_progress: bool,
+            collect_candidates: bool = False,
+            phase_stop_event: asyncio.Event | None = None,
+        ) -> tuple[int, int]:
+            nonlocal current_step, total_api_calls, total_closed_skipped
+            nonlocal total_leads, total_dupes, saturated_points
+
+            DEFAULT_BATCH_SIZE = 30
+            desc_idx = 0
+            phase_new_leads = 0
+            phase_api_calls = 0
+
+            while (
+                desc_idx < len(task_descs)
+                and not cancel_event.is_set()
+                and not (phase_stop_event and phase_stop_event.is_set())
+            ):
                 batch_size = DEFAULT_BATCH_SIZE
-            batch = all_task_descs[desc_idx:desc_idx + batch_size]
-            desc_idx += batch_size
+                if call_budget:
+                    remaining_calls = await call_budget.remaining()
+                    if remaining_calls <= 0:
+                        cancel_event.set()
+                        break
+                    batch_size = min(batch_size, max(1, remaining_calls))
 
-            coros = [
-                _scrape_grid_point_with_meta(
-                    cancel_event=cancel_event, **desc,
-                )
-                for desc in batch
+                batch = task_descs[desc_idx:desc_idx + batch_size]
+                desc_idx += batch_size
+                if not batch:
+                    break
+
+                coros = [
+                    _scrape_grid_point_with_meta(
+                        cancel_event=cancel_event,
+                        call_budget=call_budget,
+                        phase_stop_event=phase_stop_event,
+                        **desc,
+                    )
+                    for desc in batch
+                ]
+
+                for future in asyncio.as_completed(coros):
+                    (
+                        city_name,
+                        city_country,
+                        region_code,
+                        search_term,
+                        query,
+                        gp_lat,
+                        gp_lon,
+                        max_pages,
+                        records,
+                        api_calls,
+                        closed_skipped,
+                        saturated,
+                    ) = await future
+
+                    if count_progress:
+                        current_step += 1
+                    total_api_calls += api_calls
+                    total_closed_skipped += closed_skipped
+                    phase_api_calls += api_calls
+                    if saturated:
+                        saturated_points += 1
+
+                    new_leads_this_task = 0
+                    for rec in records:
+                        pdata = rec["pdata"]
+                        pid = pdata["place_id"]
+
+                        if pid in seen_ids:
+                            total_dupes += 1
+                            continue
+
+                        seen_ids.add(pid)
+                        total_leads += 1
+                        new_leads_this_task += 1
+
+                        relevance = compute_category_relevance(
+                            pdata.get("search_term", ""),
+                            pdata.get("category", ""),
+                            pdata.get("categories", ""),
+                        )
+
+                        review_count = pdata.get("review_count") or 0
+                        low_confidence = review_count <= 2
+                        fit_score = _compute_fit_score(
+                            relevance=relevance,
+                            rating=pdata.get("rating"),
+                            review_count=review_count,
+                            has_website=bool(pdata.get("website")),
+                            has_phone=bool(pdata.get("phone")),
+                            low_confidence=low_confidence,
+                        )
+
+                        biz_name = pdata["name"]
+                        name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
+                        addr_parts = parse_dach_address(pdata.get("address") or "")
+
+                        record = {
+                            "place_id": pid,
+                            "cid": pdata.get("cid") or None,
+                            "name": biz_name,
+                            "address": pdata.get("address") or None,
+                            "street": addr_parts["street"],
+                            "postal_code": addr_parts["postal_code"],
+                            "city_parsed": addr_parts["city_parsed"],
+                            "phone": pdata.get("phone") or None,
+                            "website": pdata.get("website") or None,
+                            "rating": pdata.get("rating"),
+                            "review_count": review_count,
+                            "category": pdata.get("category") or None,
+                            "categories": pdata.get("categories") or None,
+                            "latitude": pdata.get("latitude"),
+                            "longitude": pdata.get("longitude"),
+                            "thumbnail_url": pdata.get("thumbnail_url") or None,
+                            "operating_hours": pdata.get("operating_hours"),
+                            "price_range": pdata.get("price_range") or None,
+                            "description": pdata.get("description") or None,
+                            "country": city_country,
+                            "region": region_code,
+                            "city": city_name,
+                            "search_term": pdata.get("search_term", ""),
+                            "category_relevance": relevance,
+                            "fit_score": fit_score,
+                            "low_confidence": low_confidence,
+                            "job_id": job_id,
+                        }
+                        leads_buffer.append(record)
+                        if len(leads_buffer) >= 50:
+                            await _flush_buffer()
+
+                    phase_new_leads += new_leads_this_task
+                    if collect_candidates:
+                        pass1_query_new_leads[search_term] = (
+                            pass1_query_new_leads.get(search_term, 0) + new_leads_this_task
+                        )
+                        pass1_query_api_calls[search_term] = (
+                            pass1_query_api_calls.get(search_term, 0) + api_calls
+                        )
+                        if max_pages < 6 and (saturated or new_leads_this_task >= max(12, max_pages * 8)):
+                            key = (search_term, city_name, round(gp_lat, 6), round(gp_lon, 6))
+                            pass1_candidates[key] = {
+                                "city_name": city_name,
+                                "city_country": city_country,
+                                "region_code": region_code,
+                                "query": query,
+                                "gl": _get_gl_hl(city_country)[0],
+                                "hl": _get_gl_hl(city_country)[1],
+                                "gp_lat": gp_lat,
+                                "gp_lon": gp_lon,
+                                "zoom": 16,
+                                "max_pages": 6,
+                                "search_term": search_term,
+                            }
+
+                    # Extra guard for legacy jobs where total_api_calls is preloaded.
+                    if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
+                        logger.info(
+                            "Job %s: credit limit reached (%d/%d)",
+                            job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit,
+                        )
+                        cancel_event.set()
+
+                    await _checkpoint()
+
+                    if phase_stop_event and phase_api_calls >= 10:
+                        marginal = phase_new_leads / max(phase_api_calls, 1)
+                        if marginal < 0.35 and not phase_stop_event.is_set():
+                            logger.info(
+                                "Job %s: stopping %s early due low marginal yield (%.2f leads/call)",
+                                job_id, phase_label, marginal,
+                            )
+                            phase_stop_event.set()
+
+            return phase_new_leads, phase_api_calls
+
+        # First pass (broad coverage)
+        pass1_new, pass1_calls = await _process_task_descs(
+            all_task_descs,
+            phase_label="pass1",
+            count_progress=True,
+            collect_candidates=True,
+        )
+
+        # Adaptive second pass: deepen only high-value saturated points.
+        pass2_new = 0
+        pass2_calls = 0
+        if not cancel_event.is_set() and pass1_candidates:
+            efficiencies = {
+                q: (pass1_query_new_leads.get(q, 0) / max(1, calls))
+                for q, calls in pass1_query_api_calls.items()
+            }
+            eff_values = sorted(efficiencies.values())
+            median_eff = eff_values[len(eff_values) // 2] if eff_values else 0.0
+            min_eff = max(0.35, median_eff * 0.7)
+            high_value_queries = {q for q, eff in efficiencies.items() if eff >= min_eff}
+            pass2_descs = [
+                d for d in pass1_candidates.values()
+                if d["search_term"] in high_value_queries
             ]
+            if pass2_descs:
+                logger.info(
+                    "Job %s: pass2 deepening %d points across %d queries",
+                    job_id, len(pass2_descs), len(high_value_queries),
+                )
+                pass2_stop_event = asyncio.Event()
+                pass2_new, pass2_calls = await _process_task_descs(
+                    pass2_descs,
+                    phase_label="pass2",
+                    count_progress=False,
+                    collect_candidates=False,
+                    phase_stop_event=pass2_stop_event,
+                )
+                logger.info(
+                    "Job %s: pass2 complete — %d new leads from %d API calls",
+                    job_id, pass2_new, pass2_calls,
+                )
 
-            for future in asyncio.as_completed(coros):
-                city_name, city_country, region_code, records, api_calls, closed_skipped, saturated = await future
-
-                current_step += 1
-                total_api_calls += api_calls
-                total_closed_skipped += closed_skipped
-                if saturated:
-                    saturated_points += 1
-
-                for rec in records:
-                    pdata = rec["pdata"]
-                    pid = pdata["place_id"]
-
-                    if pid in seen_ids:
-                        total_dupes += 1
-                        continue
-
-                    seen_ids.add(pid)
-                    total_leads += 1
-
-                    relevance = compute_category_relevance(
-                        pdata.get("search_term", ""),
-                        pdata.get("category", ""),
-                        pdata.get("categories", ""),
-                    )
-
-                    review_count = pdata.get("review_count") or 0
-                    low_confidence = review_count <= 2
-
-                    biz_name = pdata["name"]
-                    name_counts[biz_name] = name_counts.get(biz_name, 0) + 1
-
-                    addr_parts = parse_dach_address(pdata.get("address") or "")
-
-                    record = {
-                        "place_id": pid,
-                        "cid": pdata.get("cid") or None,
-                        "name": biz_name,
-                        "address": pdata.get("address") or None,
-                        "street": addr_parts["street"],
-                        "postal_code": addr_parts["postal_code"],
-                        "city_parsed": addr_parts["city_parsed"],
-                        "phone": pdata.get("phone") or None,
-                        "website": pdata.get("website") or None,
-                        "rating": pdata.get("rating"),
-                        "review_count": review_count,
-                        "category": pdata.get("category") or None,
-                        "categories": pdata.get("categories") or None,
-                        "latitude": pdata.get("latitude"),
-                        "longitude": pdata.get("longitude"),
-                        "thumbnail_url": pdata.get("thumbnail_url") or None,
-                        "operating_hours": pdata.get("operating_hours"),
-                        "price_range": pdata.get("price_range") or None,
-                        "description": pdata.get("description") or None,
-                        "country": city_country,
-                        "region": region_code,
-                        "city": city_name,
-                        "search_term": pdata.get("search_term", ""),
-                        "category_relevance": relevance,
-                        "low_confidence": low_confidence,
-                        "job_id": job_id,
-                    }
-                    leads_buffer.append(record)
-
-                    if len(leads_buffer) >= 50:
-                        await asyncio.to_thread(db.upsert_leads, leads_buffer)
-                        leads_buffer = []
-
-                # Credit budget check
-                if credit_limit and total_api_calls * _CREDITS_PER_CALL >= credit_limit:
-                    logger.info("Job %s: credit limit reached (%d/%d)",
-                                job_id, total_api_calls * _CREDITS_PER_CALL, credit_limit)
-                    cancel_event.set()
-
-                # Progress update every 10 completed grid points
-                if current_step % 10 == 0 or current_step == total_steps:
-                    await asyncio.to_thread(
-                        db.update_job,
-                        job_id,
-                        processed_locations=current_step,
-                        total_locations=total_steps,
-                        total_leads=total_leads,
-                        total_duplicates=total_dupes,
-                        total_api_calls=total_api_calls,
-                    )
+        await _flush_buffer()
 
         # Flush remaining leads (always, even on cancel/budget_reached)
         if leads_buffer:
             await asyncio.to_thread(db.upsert_leads, leads_buffer)
             leads_buffer = []
 
-        # Chain detection: flag businesses whose name appeared 5+ times
-        chain_names = {n for n, c in name_counts.items() if c >= 5}
-        if chain_names:
-            await asyncio.to_thread(db.flag_chains, job_id, chain_names)
-            logger.info("Job %s: flagged %d chain names (%d leads)",
-                        job_id, len(chain_names),
-                        sum(c for n, c in name_counts.items() if n in chain_names))
+        # Chain detection with confidence.
+        chain_scores = {
+            n: max(0.55, min(1.0, 0.55 + (c - 5) * 0.08))
+            for n, c in name_counts.items()
+            if c >= 5
+        }
+        if chain_scores:
+            await asyncio.to_thread(db.flag_chains, job_id, chain_scores)
+            logger.info(
+                "Job %s: flagged %d chain names (%d leads)",
+                job_id, len(chain_scores),
+                sum(c for n, c in name_counts.items() if n in chain_scores),
+            )
 
         # Log saturation stats
         if saturated_points > 0:
@@ -523,6 +755,8 @@ async def run_job(
             db.update_job,
             job_id,
             status=status,
+            processed_locations=current_step,
+            total_locations=total_steps,
             total_leads=total_leads,
             total_duplicates=total_dupes,
             total_api_calls=total_api_calls,
@@ -530,9 +764,21 @@ async def run_job(
             saturated_points=saturated_points,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
-        logger.info("Job %s %s: %d leads, %d dupes, %d API calls, %d saturated, %d closed skipped, %d serp enriched",
-                     job_id, status, total_leads, total_dupes, total_api_calls,
-                     saturated_points, total_closed_skipped, serp_enriched)
+        logger.info(
+            "Job %s %s: %d leads, %d dupes, %d API calls, %d saturated, %d closed skipped, %d serp enriched (pass1=%d/%d, pass2=%d/%d)",
+            job_id,
+            status,
+            total_leads,
+            total_dupes,
+            total_api_calls,
+            saturated_points,
+            total_closed_skipped,
+            serp_enriched,
+            pass1_new,
+            pass1_calls,
+            pass2_new,
+            pass2_calls,
+        )
 
     except BaseException as exc:
         # BaseException catches Exception, CancelledError, KeyboardInterrupt, SystemExit
@@ -548,6 +794,11 @@ async def run_job(
                 db.update_job,
                 job_id,
                 status="failed",
+                processed_locations=current_step,
+                total_locations=total_steps,
+                total_leads=total_leads,
+                total_duplicates=total_dupes,
+                total_api_calls=total_api_calls,
                 error_message=str(exc)[:500],
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )

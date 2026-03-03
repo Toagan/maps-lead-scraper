@@ -128,6 +128,28 @@
                         <div><span class="font-semibold text-gray-800">Google Category</span> — Browse all ~4000 official Google Business Profile categories. Useful when you're not sure what to search for — pick the exact category Google uses. Works like a single term search.</div>
                     </div>
                 </div>
+                <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 text-xs text-amber-900 space-y-2">
+                    <div>
+                        <span class="font-semibold">Coverage tip:</span> For maximum outbound coverage, use a multi-term bundle (10-40 related terms) instead of a single keyword.
+                    </div>
+                    <div class="text-amber-900/90">AI prompt template (paste into any AI tool):</div>
+                    <textarea id="coverage-prompt-template" readonly rows="8" class="w-full border border-amber-200 rounded-lg px-2.5 py-2 font-mono text-[11px] bg-amber-100 text-amber-900 resize-none">You are a Google Maps lead generation expert.
+
+Generate 30-60 high-coverage Google Maps search terms for this niche: "{{NICHE}}"
+Target country: "{{COUNTRY}}"
+Language: "{{LANGUAGE}}"
+
+Rules:
+1. Include core terms, synonyms, abbreviations, and common wording variants.
+2. Include adjacent terms real businesses use on Google Maps for this service.
+3. Include Google Business Profile category-style phrasing where relevant.
+4. Do not include city names or regions.
+5. Keep each term between 1 and 4 words.
+6. Prioritize terms that find different businesses, not only close duplicates.
+
+Return only a JSON array of strings. No markdown, no explanation.</textarea>
+                    <button type="button" onclick="copyCoveragePromptTemplate(this)" class="inline-flex items-center bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-200 transition">Copy Prompt Template</button>
+                </div>
                 <!-- Search Term -->
                 <div id="search-term-group">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Search Term</label>
@@ -1018,6 +1040,16 @@ function copyPrompt() {
         const btn = document.getElementById('pg-copy-btn');
         btn.textContent = 'Copied!';
         setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+    });
+}
+
+function copyCoveragePromptTemplate(btn) {
+    const text = document.getElementById('coverage-prompt-template')?.value || '';
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        const old = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = old; }, 2000);
     });
 }
 
@@ -1951,7 +1983,6 @@ function nextLeadPage() { if ((currentLeadPage + 1) * LEADS_PER_PAGE < totalLead
 function downloadCSV() {
     const p = buildLeadParams();
     p.set('format', 'csv');
-    p.set('limit', '50000');
     window.open('/leads?' + p.toString(), '_blank');
 }
 
@@ -2009,7 +2040,6 @@ function confirmCategoryDownload() {
     const p = new URLSearchParams();
     p.set('job_id', categoryModalJobId);
     p.set('format', 'csv');
-    p.set('limit', '50000');
     // Only add categories filter if not all are selected
     const allCount = document.querySelectorAll('.cat-check').length;
     if (selected.length < allCount) {

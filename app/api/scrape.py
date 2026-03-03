@@ -281,6 +281,9 @@ async def start_scrape(req: ScrapeRequest):
     if not all_cities:
         raise HTTPException(status_code=400, detail="No cities matched the targeting config")
 
+    # Credit estimate (also used to set accurate total_locations/tasks)
+    credit_info = estimate_credits(all_cities, search_queries)
+
     # Persist job
     country_label = ",".join(c.upper() for c in country_list)
     targeting_config = {
@@ -302,12 +305,9 @@ async def start_scrape(req: ScrapeRequest):
         targeting_mode=req.targeting_mode,
         targeting_config=targeting_config,
         enrich_emails=req.enrich_emails,
-        total_locations=len(all_cities),
+        total_locations=credit_info["total_steps"],
         job_name=req.job_name or None,
     )
-
-    # Credit estimate
-    credit_info = estimate_credits(all_cities, search_queries)
 
     # Launch background task (strong ref prevents GC on Python < 3.12)
     launch_job_task(
@@ -328,7 +328,7 @@ async def start_scrape(req: ScrapeRequest):
     return ScrapeResponse(
         job_id=job_id,
         status="pending",
-        total_locations=len(all_cities),
+        total_locations=credit_info["total_steps"],
         estimated_credits=est,
         message=f"Scraping '{display_name}' ({len(search_queries)} terms) across {len(all_cities)} locations in {country_label} (~{est} credits{limit_msg})",
     )
