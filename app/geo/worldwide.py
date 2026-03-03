@@ -302,7 +302,7 @@ _MAJOR_CITIES: dict[tuple[str, str], int] = {
     ("FR", "rennes"): 220_000,
     # Spain
     ("ES", "madrid"): 3_300_000, ("ES", "barcelona"): 1_600_000,
-    ("ES", "valencia"): 790_000, ("ES", "seville"): 690_000,
+    ("ES", "valencia"): 790_000, ("ES", "sevilla"): 690_000,
     ("ES", "zaragoza"): 670_000, ("ES", "málaga"): 580_000,
     ("ES", "bilbao"): 350_000,
     # Italy
@@ -317,7 +317,7 @@ _MAJOR_CITIES: dict[tuple[str, str], int] = {
     ("BR", "manaus"): 2_200_000, ("BR", "curitiba"): 1_960_000,
     # India
     ("IN", "mumbai"): 12_400_000, ("IN", "delhi"): 11_000_000,
-    ("IN", "bangalore"): 8_400_000, ("IN", "hyderabad"): 6_800_000,
+    ("IN", "bengaluru"): 8_400_000, ("IN", "hyderabad"): 6_800_000,
     ("IN", "ahmedabad"): 5_600_000, ("IN", "chennai"): 4_600_000,
     ("IN", "kolkata"): 4_500_000, ("IN", "pune"): 3_100_000,
     ("IN", "jaipur"): 3_000_000,
@@ -331,12 +331,12 @@ _MAJOR_CITIES: dict[tuple[str, str], int] = {
     ("AU", "brisbane"): 2_500_000, ("AU", "perth"): 2_100_000,
     ("AU", "adelaide"): 1_400_000,
     # Canada
-    ("CA", "toronto"): 2_930_000, ("CA", "montreal"): 1_780_000,
+    ("CA", "toronto"): 2_930_000, ("CA", "montréal"): 1_780_000,
     ("CA", "calgary"): 1_340_000, ("CA", "ottawa"): 1_000_000,
     ("CA", "edmonton"): 1_000_000, ("CA", "vancouver"): 680_000,
     # Other major
     ("TR", "istanbul"): 15_500_000, ("TR", "ankara"): 5_700_000,
-    ("TR", "izmir"): 2_900_000,
+    ("TR", "\u0130zmir".lower()): 2_900_000,
     ("RU", "moscow"): 12_600_000, ("RU", "saint petersburg"): 5_400_000,
     ("EG", "cairo"): 10_000_000, ("EG", "alexandria"): 5_200_000,
     ("KR", "seoul"): 9_700_000, ("KR", "busan"): 3_400_000,
@@ -355,27 +355,93 @@ _MAJOR_CITIES: dict[tuple[str, str], int] = {
     ("MY", "kuala lumpur"): 1_800_000,
     ("NL", "amsterdam"): 870_000, ("NL", "rotterdam"): 650_000,
     ("NL", "the hague"): 545_000,
+    # Belgium
+    ("BE", "brussels"): 1_200_000, ("BE", "antwerpen"): 530_000,
+    ("BE", "gent"): 265_000, ("BE", "charleroi"): 200_000,
+    ("BE", "liège"): 200_000, ("BE", "brugge"): 120_000,
+    ("BE", "namur"): 112_000,
+    # Bulgaria
+    ("BG", "sofia"): 1_280_000, ("BG", "plovdiv"): 345_000,
+    ("BG", "varna"): 315_000, ("BG", "burgas"): 210_000,
+    # Croatia
+    ("HR", "zagreb"): 800_000, ("HR", "split"): 170_000,
+    ("HR", "rijeka"): 130_000, ("HR", "osijek"): 105_000,
+    # New Zealand
+    ("NZ", "auckland"): 1_470_000, ("NZ", "christchurch"): 385_000,
+    ("NZ", "wellington"): 215_000, ("NZ", "hamilton"): 180_000,
+    ("NZ", "tauranga"): 155_000,
+    # Serbia
+    ("RS", "belgrade"): 1_400_000, ("RS", "novi sad"): 290_000,
+    ("RS", "niš"): 260_000,
+    # Slovakia
+    ("SK", "bratislava"): 440_000, ("SK", "košice"): 240_000,
+    # Ukraine
+    ("UA", "kyiv"): 2_950_000, ("UA", "kharkiv"): 1_430_000,
+    ("UA", "odesa"): 1_010_000, ("UA", "dnipro"): 970_000,
+    ("UA", "donetsk"): 910_000, ("UA", "zaporizhzhya"): 730_000,
+    ("UA", "lviv"): 720_000, ("UA", "kryvyy rih"): 620_000,
+    # Poland (expanded)
     ("PL", "warsaw"): 1_790_000, ("PL", "kraków"): 780_000,
     ("PL", "łódź"): 680_000, ("PL", "wrocław"): 640_000,
-    ("RO", "bucharest"): 1_800_000,
+    ("PL", "poznań"): 535_000, ("PL", "gdańsk"): 470_000,
+    ("PL", "szczecin"): 400_000, ("PL", "bydgoszcz"): 340_000,
+    ("PL", "lublin"): 340_000, ("PL", "białystok"): 300_000,
+    ("PL", "katowice"): 290_000, ("PL", "gdynia"): 245_000,
+    ("PL", "częstochowa"): 220_000, ("PL", "radom"): 210_000,
+    ("PL", "toruń"): 195_000, ("PL", "rzeszów"): 195_000,
+    ("PL", "sosnowiec"): 190_000, ("PL", "kielce"): 190_000,
+    ("PL", "gliwice"): 175_000, ("PL", "olsztyn"): 170_000,
+    ("PL", "zabrze"): 170_000, ("PL", "bielsko-biala"): 170_000,
+    ("PL", "bytom"): 160_000, ("PL", "rybnik"): 140_000,
+    ("PL", "ruda śląska"): 135_000, ("PL", "tychy"): 125_000,
+    ("PL", "opole"): 127_000, ("PL", "gorzów wielkopolski"): 120_000,
+    ("PL", "elbląg"): 118_000, ("PL", "płock"): 118_000,
+    ("PL", "dąbrowa górnicza"): 115_000, ("PL", "wałbrzych"): 110_000,
+    ("PL", "włocławek"): 108_000, ("PL", "tarnów"): 108_000,
+    ("PL", "chorzów"): 107_000, ("PL", "koszalin"): 107_000,
+    ("PL", "kalisz"): 100_000, ("PL", "legnica"): 100_000,
+    # Romania (expanded)
+    ("RO", "bucharest"): 1_800_000, ("RO", "cluj-napoca"): 325_000,
+    ("RO", "timişoara"): 320_000, ("RO", "iaşi"): 290_000,
+    ("RO", "constanţa"): 280_000, ("RO", "craiova"): 270_000,
+    ("RO", "braşov"): 250_000, ("RO", "galaţi"): 250_000,
+    ("RO", "ploieşti"): 210_000, ("RO", "oradea"): 195_000,
+    ("RO", "brăila"): 170_000, ("RO", "arad"): 160_000,
+    ("RO", "piteşti"): 155_000, ("RO", "sibiu"): 150_000,
+    ("RO", "bacău"): 145_000, ("RO", "târgu mureş"): 135_000,
+    ("RO", "baia mare"): 125_000, ("RO", "buzău"): 120_000,
+    ("RO", "botoşani"): 115_000, ("RO", "satu mare"): 110_000,
+    ("RO", "suceava"): 105_000,
+    # Czech Republic (expanded)
     ("CZ", "prague"): 1_300_000, ("CZ", "brno"): 380_000,
-    ("HU", "budapest"): 1_750_000,
-    ("GR", "athens"): 660_000, ("GR", "thessaloniki"): 320_000,
-    ("SE", "stockholm"): 980_000, ("SE", "gothenburg"): 580_000,
+    ("CZ", "ostrava"): 285_000, ("CZ", "pilsen"): 175_000,
+    ("CZ", "liberec"): 105_000, ("CZ", "olomouc"): 100_000,
+    # Hungary (expanded)
+    ("HU", "budapest"): 1_750_000, ("HU", "debrecen"): 200_000,
+    ("HU", "szeged"): 160_000, ("HU", "miskolc"): 155_000,
+    ("HU", "pécs"): 145_000, ("HU", "győr"): 130_000,
+    # Greece
+    ("GR", "athens"): 660_000, ("GR", "thessaloníki"): 320_000,
+    # Scandinavia
+    ("SE", "stockholm"): 980_000, ("SE", "göteborg"): 580_000,
     ("SE", "malmö"): 320_000,
     ("DK", "copenhagen"): 630_000,
     ("FI", "helsinki"): 650_000,
     ("NO", "oslo"): 700_000,
+    # Portugal / Ireland
     ("PT", "lisbon"): 550_000, ("PT", "porto"): 240_000,
     ("IE", "dublin"): 550_000,
+    # Middle East
     ("IL", "tel aviv"): 460_000, ("IL", "jerusalem"): 940_000,
     ("AE", "dubai"): 3_400_000, ("AE", "abu dhabi"): 1_500_000,
     ("SA", "riyadh"): 7_600_000, ("SA", "jeddah"): 4_600_000,
+    # East / Southeast Asia
     ("TW", "taipei"): 2_600_000, ("TW", "kaohsiung"): 2_770_000,
     ("CN", "shanghai"): 24_800_000, ("CN", "beijing"): 21_500_000,
     ("CN", "guangzhou"): 13_500_000, ("CN", "shenzhen"): 12_400_000,
     ("VN", "ho chi minh city"): 8_900_000, ("VN", "hanoi"): 8_000_000,
     ("PH", "manila"): 1_800_000, ("PH", "quezon city"): 2_900_000,
+    # Africa / Americas
     ("GH", "accra"): 2_500_000,
     ("CL", "santiago"): 6_200_000,
 }
@@ -506,6 +572,8 @@ _MAJOR_CITY_COORDS: dict[tuple[str, str], tuple[float, float]] = {
     ("US", "washington"): (38.90, -77.04),
     ("US", "westminster"): (39.84, -105.04),
     ("US", "wilmington"): (34.24, -77.95),
+    # China — Shenzhen has duplicate in CSV
+    ("CN", "shenzhen"): (22.55, 114.07),
 }
 
 
