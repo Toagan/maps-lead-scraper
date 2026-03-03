@@ -75,6 +75,7 @@ async def search_maps(
     lon: float,
     zoom: int = 16,
     start: int = 0,
+    location: str | None = None,
 ) -> dict | None:
     """
     Call Serper /maps endpoint.
@@ -91,6 +92,8 @@ async def search_maps(
         "ll": f"@{lat},{lon},{zoom}z",
         "start": start,
     }
+    if location:
+        payload["location"] = location
     headers = {
         "X-API-KEY": get_serper_api_key(),
         "Content-Type": "application/json",

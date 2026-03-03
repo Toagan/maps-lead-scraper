@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List
 
 from app.geo import get_region, get_country_module, haversine_km
-from app.geo.worldwide import is_worldwide, get_serper_params
+from app.geo.worldwide import is_worldwide, get_serper_params, get_country_name
 from app.services import database as db
 from app.services.serper import (
     search_maps, extract_place_data, compute_category_relevance,
@@ -30,7 +30,18 @@ _background_tasks: set[asyncio.Task] = set()
 
 # Max distance (km) a result may be from the search point before we discard it.
 # Google Maps can return results well outside the visible area.
-_MAX_RESULT_DISTANCE_KM = 25.0
+# Tighter for dense cities (fewer irrelevant far-away results), looser for rural.
+_MAX_DIST_DEFAULT_KM = 25.0
+_MAX_DIST_LARGE_CITY_KM = 8.0   # pop >= 500k
+_MAX_DIST_MEDIUM_CITY_KM = 15.0  # pop >= 100k
+
+
+def _max_distance_km(population: int) -> float:
+    if population >= 500_000:
+        return _MAX_DIST_LARGE_CITY_KM
+    if population >= 100_000:
+        return _MAX_DIST_MEDIUM_CITY_KM
+    return _MAX_DIST_DEFAULT_KM
 
 
 class _CallBudget:
@@ -78,7 +89,7 @@ def _result_within_bounds(
     result_lon: float | None,
     search_lat: float,
     search_lon: float,
-    max_km: float = _MAX_RESULT_DISTANCE_KM,
+    max_km: float = _MAX_DIST_DEFAULT_KM,
 ) -> bool:
     """Return True if the result coordinates are within max_km of the search point."""
     if result_lat is None or result_lon is None:
@@ -217,6 +228,8 @@ async def _scrape_grid_point(
     cancel_event: asyncio.Event,
     call_budget: _CallBudget | None = None,
     phase_stop_event: asyncio.Event | None = None,
+    max_distance_km: float = _MAX_DIST_DEFAULT_KM,
+    location: str | None = None,
 ) -> tuple[list[dict], int, int, bool]:
     """Process one grid point: paginate and collect raw records.
 
@@ -246,6 +259,7 @@ async def _scrape_grid_point(
             lon=gp_lon,
             zoom=zoom,
             start=page * 20,
+            location=location,
         )
         local_api_calls += 1
 
@@ -270,6 +284,7 @@ async def _scrape_grid_point(
                 pdata.get("longitude"),
                 gp_lat,
                 gp_lon,
+                max_km=max_distance_km,
             ):
                 continue
 
@@ -433,6 +448,8 @@ async def run_job(
             gl, hl = _get_gl_hl(city_country)
             query = f"{search_term} in {city.name}"
 
+            max_dist = _max_distance_km(city.population)
+            loc_str = f"{city.name}, {get_country_name(city_country)}"
             for gp_lat, gp_lon in grid_points:
                 all_task_descs.append({
                     "city_name": city.name,
@@ -443,6 +460,8 @@ async def run_job(
                     "gp_lat": gp_lat, "gp_lon": gp_lon,
                     "zoom": zoom, "max_pages": max_pages,
                     "search_term": search_term,
+                    "max_distance_km": max_dist,
+                    "location": loc_str,
                 })
 
     # Skip already-processed tasks on resume
