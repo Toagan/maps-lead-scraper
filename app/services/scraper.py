@@ -509,6 +509,12 @@ async def run_job(
             phase_new_leads = 0
             phase_api_calls = 0
 
+            # Per-query early stopping for multi-term jobs
+            skipped_queries: set[str] = set()
+            query_new: dict[str, int] = {}
+            query_calls: dict[str, int] = {}
+            multi_query = len(search_queries) > 1
+
             while (
                 desc_idx < len(task_descs)
                 and not cancel_event.is_set()
@@ -527,15 +533,23 @@ async def run_job(
                 if not batch:
                     break
 
-                coros = [
-                    _scrape_grid_point_with_meta(
-                        cancel_event=cancel_event,
-                        call_budget=call_budget,
-                        phase_stop_event=phase_stop_event,
-                        **desc,
+                coros = []
+                for desc in batch:
+                    if desc["search_term"] in skipped_queries:
+                        if count_progress:
+                            current_step += 1
+                        continue
+                    coros.append(
+                        _scrape_grid_point_with_meta(
+                            cancel_event=cancel_event,
+                            call_budget=call_budget,
+                            phase_stop_event=phase_stop_event,
+                            **desc,
+                        )
                     )
-                    for desc in batch
-                ]
+                if not coros:
+                    await _checkpoint()
+                    continue
 
                 for future in asyncio.as_completed(coros):
                     (
@@ -629,6 +643,20 @@ async def run_job(
                             await _flush_buffer()
 
                     phase_new_leads += new_leads_this_task
+
+                    # Per-query efficiency tracking
+                    if multi_query:
+                        q = search_term
+                        query_new[q] = query_new.get(q, 0) + new_leads_this_task
+                        query_calls[q] = query_calls.get(q, 0) + api_calls
+                        qc = query_calls[q]
+                        if qc >= 50 and q not in skipped_queries and query_new[q] / qc < 0.20:
+                            skipped_queries.add(q)
+                            logger.info(
+                                "Job %s: skipping query '%s' — depleted (%.2f leads/call after %d calls)",
+                                job_id, q, query_new[q] / qc, qc,
+                            )
+
                     if collect_candidates:
                         pass1_query_new_leads[search_term] = (
                             pass1_query_new_leads.get(search_term, 0) + new_leads_this_task
