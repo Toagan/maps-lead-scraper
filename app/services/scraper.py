@@ -398,6 +398,7 @@ async def run_job(
     total_dupes = 0
     total_api_calls = 0
     total_closed_skipped = 0
+    total_irrelevant_skipped = 0
     saturated_points = 0
     if resume_offset > 0:
         existing = await asyncio.to_thread(db.get_job_place_ids, job_id)
@@ -501,7 +502,7 @@ async def run_job(
             collect_candidates: bool = False,
             phase_stop_event: asyncio.Event | None = None,
         ) -> tuple[int, int]:
-            nonlocal current_step, total_api_calls, total_closed_skipped
+            nonlocal current_step, total_api_calls, total_closed_skipped, total_irrelevant_skipped
             nonlocal total_leads, total_dupes, saturated_points
 
             DEFAULT_BATCH_SIZE = 30
@@ -585,14 +586,18 @@ async def run_job(
                             continue
 
                         seen_ids.add(pid)
-                        total_leads += 1
-                        new_leads_this_task += 1
 
                         relevance = compute_category_relevance(
                             pdata.get("search_term", ""),
                             pdata.get("category", ""),
                             pdata.get("categories", ""),
                         )
+                        if relevance <= 0.3:
+                            total_irrelevant_skipped += 1
+                            continue
+
+                        total_leads += 1
+                        new_leads_this_task += 1
 
                         review_count = pdata.get("review_count") or 0
                         low_confidence = review_count <= 2
@@ -812,11 +817,12 @@ async def run_job(
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
         logger.info(
-            "Job %s %s: %d leads, %d dupes, %d API calls, %d saturated, %d closed skipped, %d serp enriched (pass1=%d/%d, pass2=%d/%d)",
+            "Job %s %s: %d leads, %d dupes, %d irrelevant skipped, %d API calls, %d saturated, %d closed skipped, %d serp enriched (pass1=%d/%d, pass2=%d/%d)",
             job_id,
             status,
             total_leads,
             total_dupes,
+            total_irrelevant_skipped,
             total_api_calls,
             saturated_points,
             total_closed_skipped,

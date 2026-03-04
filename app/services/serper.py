@@ -179,12 +179,44 @@ async def search_web(
     return []
 
 
+_TRADE_ROOT_GROUPS: list[set[str]] = [
+    # SHK: Sanitär-Heizung-Klima
+    {"sanitär", "heizung", "klima", "wärmepumpe", "installat",
+     "haustechnik", "lüftung", "kälte", "klempner", "shk"},
+    # Electrical
+    {"elektrik", "elektro", "elektroinst", "elektrotechnik"},
+    # Construction
+    {"bauunternehm", "hochbau", "tiefbau", "maurer", "beton",
+     "abbruch", "generalunternehm", "straßenbau"},
+    # Roof & timber
+    {"dachdecker", "zimmerei", "dachsanierung", "holzbau"},
+    # Interior finishing
+    {"trockenbau", "stuckateur", "innenausbau", "estrich"},
+    # Flooring & tiles
+    {"fliesenleger", "bodenleger", "fliesen", "parkett"},
+    # Painting
+    {"maler", "lackier", "fassade", "anstrich"},
+    # Carpentry
+    {"schreiner", "tischler", "möbelbau"},
+    # Landscaping
+    {"gartenbau", "landschaftsbau", "galabau", "pflaster"},
+    # Glass & windows
+    {"glaser", "fenster", "fensterbau", "verglas"},
+    # English HVAC/plumbing
+    {"plumb", "hvac", "heating", "boiler"},
+    # English electrical
+    {"electrician", "electrical", "wiring"},
+    # English construction
+    {"roofing", "roofer", "contractor", "construction", "renovation"},
+]
+
+
 def compute_category_relevance(search_term: str, category: str, categories_str: str) -> float:
     """Score 0.0–1.0 how well the result's category matches the search term.
 
     Uses lightweight substring matching that works across German/English
-    without needing a mapping table.  Never used to drop results — only
-    to score them so users can filter at export time.
+    without needing a mapping table.  Results scoring <= 0.3 (known
+    unrelated) are filtered during scraping; finer control via export.
     """
     if not category and not categories_str:
         return 0.5  # no data — keep neutral
@@ -224,6 +256,12 @@ def compute_category_relevance(search_term: str, category: str, categories_str: 
                     break
             if common >= 6:
                 return 0.75
+
+    # Trade-root group: "Heizungsbauer" ↔ "Sanitärinstallateur" share SHK group
+    for group in _TRADE_ROOT_GROUPS:
+        if (any(root in search_lower for root in group)
+                and any(root in combined for root in group)):
+            return 0.7
 
     # Category exists but zero overlap with search term
     if category:
