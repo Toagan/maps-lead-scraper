@@ -91,6 +91,20 @@ async def resume(job_id: str):
     return {"status": "resuming", "job_id": job_id, "resume_from": resume_offset}
 
 
+@router.patch("/jobs/{job_id}")
+async def patch_job(job_id: str, body: dict):
+    """Update mutable job fields (e.g. client_used flag)."""
+    allowed = {"client_used"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    db.update_job(job_id, **updates)
+    return {"ok": True, **updates}
+
+
 @router.delete("/jobs/{job_id}")
 async def delete(job_id: str):
     if is_job_running(job_id):

@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS scrape_jobs (
     total_api_calls     INTEGER DEFAULT 0,
     saturated_points    INTEGER DEFAULT 0,
     error_message       TEXT,
+    client_used         BOOLEAN DEFAULT FALSE,
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     started_at          TIMESTAMPTZ,
     completed_at        TIMESTAMPTZ

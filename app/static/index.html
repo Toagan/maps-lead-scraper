@@ -1561,6 +1561,10 @@ async function loadJobs() {
             const deleteBtn = isFinished
                 ? `<button onclick="deleteJob('${j.id}')" class="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>`
                 : '';
+            const clientUsed = j.client_used || false;
+            const usedBtn = isFinished
+                ? `<button onclick="event.stopPropagation();toggleClientUsed('${j.id}',${!clientUsed})" class="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded ${clientUsed ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}" title="${clientUsed ? 'Sent to client' : 'Not yet sent to client'}">${clientUsed ? 'Sent' : 'Not sent'}</button>`
+                : '';
             const checkbox = isFinished
                 ? `<input type="checkbox" class="job-select-cb text-br-600 focus:ring-br-500 rounded" data-job-id="${j.id}" onchange="toggleJobSelect('${j.id}')" ${selectedJobIds.has(j.id) ? 'checked' : ''}>`
                 : '';
@@ -1609,7 +1613,7 @@ async function loadJobs() {
                     return `${calls} <span class="text-xs text-gray-300">calls</span>`;
                 })()}</td>
                 <td class="px-4 py-3 text-xs text-gray-400" title="${j.created_at ? new Date(j.created_at).toLocaleString() : ''}">${created}</td>
-                <td class="px-4 py-3 space-x-2">${downloadBtn} ${resumeBtn} ${cancelBtn} ${deleteBtn}</td>
+                <td class="px-4 py-3 space-x-2">${usedBtn} ${downloadBtn} ${resumeBtn} ${cancelBtn} ${deleteBtn}</td>
             </tr>`;
         }).join('');
 
@@ -1762,6 +1766,19 @@ async function deleteJob(id) {
         }
     } catch(e) {
         console.error('Delete error:', e);
+    }
+}
+
+async function toggleClientUsed(id, value) {
+    try {
+        const r = await authFetch(`/jobs/${id}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({client_used: value}),
+        });
+        if (r.ok) loadJobs();
+    } catch(e) {
+        console.error('Toggle client_used error:', e);
     }
 }
 
