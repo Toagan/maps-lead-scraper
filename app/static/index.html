@@ -482,6 +482,7 @@ Return only a JSON array of strings. No markdown, no explanation.</textarea>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Dupes</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Credits</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900">Created</th>
+                            <th class="px-4 py-3 text-center font-medium text-br-900">Client</th>
                             <th class="px-4 py-3 text-left font-medium text-br-900"></th>
                         </tr>
                     </thead>
@@ -1563,7 +1564,7 @@ async function loadJobs() {
                 : '';
             const clientUsed = j.client_used || false;
             const usedBtn = isFinished
-                ? `<button onclick="event.stopPropagation();toggleClientUsed('${j.id}',${!clientUsed})" class="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded ${clientUsed ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}" title="${clientUsed ? 'Sent to client' : 'Not yet sent to client'}">${clientUsed ? 'Sent' : 'Not sent'}</button>`
+                ? `<button onclick="event.stopPropagation();toggleClientUsed('${j.id}',${!clientUsed})" class="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${clientUsed ? 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100 hover:text-gray-600'}" title="Click to toggle">${clientUsed ? '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Sent' : '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"/></svg> Not sent'}</button>`
                 : '';
             const checkbox = isFinished
                 ? `<input type="checkbox" class="job-select-cb text-br-600 focus:ring-br-500 rounded" data-job-id="${j.id}" onchange="toggleJobSelect('${j.id}')" ${selectedJobIds.has(j.id) ? 'checked' : ''}>`
@@ -1613,7 +1614,8 @@ async function loadJobs() {
                     return `${calls} <span class="text-xs text-gray-300">calls</span>`;
                 })()}</td>
                 <td class="px-4 py-3 text-xs text-gray-400" title="${j.created_at ? new Date(j.created_at).toLocaleString() : ''}">${created}</td>
-                <td class="px-4 py-3 space-x-2">${usedBtn} ${downloadBtn} ${resumeBtn} ${cancelBtn} ${deleteBtn}</td>
+                <td class="px-4 py-3 text-center">${usedBtn}</td>
+                <td class="px-4 py-3 space-x-2">${downloadBtn} ${resumeBtn} ${cancelBtn} ${deleteBtn}</td>
             </tr>`;
         }).join('');
 
